@@ -1,8 +1,18 @@
 // Almacenamiento local (IndexedDB): datos para trabajar sin conexión,
 // cola de cambios pendientes y archivos a subir.
-const NOMBRE = 'bitacora';
+// "ver como" usa una base aparte para no mezclar sus datos con los del administrador.
+const PRINCIPAL = 'bitacora';
 const VERSION_DB = 1;
+let NOMBRE = PRINCIPAL;
 let conexion = null;
+
+export async function usarBase(alternativa = false) {
+  const nombre = alternativa ? PRINCIPAL + '-vercomo' : PRINCIPAL;
+  if (nombre === NOMBRE) return;
+  if (conexion) { try { (await conexion).close(); } catch (e) { /* nada */ } }
+  conexion = null;
+  NOMBRE = nombre;
+}
 
 function abrir() {
   if (conexion) return conexion;

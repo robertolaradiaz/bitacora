@@ -6,6 +6,7 @@ import { sincronizar, descartarOp, reintentarOp, descartarArchivo, reintentarArc
 import { esDemo } from '../api.js';
 import { VERSION } from '../version.js';
 import { PERMISOS_TXT } from './login.js';
+import { plantillaMisSolicitudes, conectarBanners } from './solicitudes.js';
 
 let promptInstalar = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); promptInstalar = e; });
@@ -35,6 +36,7 @@ export function vistaCuenta(el, _p, { cerrarSesion }) {
       <h2 class="sub-tit">Lo que puedes hacer</h2>
       <ul class="lista-permisos">${permisos.map((p) => html`<li>${icono('ok', 'ico-xs')} ${p}</li>`)}</ul>
       ${u.patentes && u.patentes.length ? html`<p class="sub">Vehículos asignados: ${u.patentes.join(', ')}</p>` : ''}
+      <div id="misSolicitudes"></div>
 
       <h2 class="sub-tit">Aplicación</h2>
       <div class="lista-acciones">
@@ -46,6 +48,13 @@ export function vistaCuenta(el, _p, { cerrarSesion }) {
       </div>
       <p class="version">Versión ${VERSION}${esDemo() ? ' · modo demostración' : ''}</p>
     </section>`);
+  const pintarSolicitudes = async () => {
+    const cont = $('#misSolicitudes', el);
+    if (!cont) return;
+    pintar(cont, await plantillaMisSolicitudes());
+    conectarBanners(cont, pintarSolicitudes);
+  };
+  pintarSolicitudes();
   const ins = $('#instalar', el);
   if (ins) ins.onclick = async () => { if (await instalar()) aviso('¡App instalada!', { tipo: 'ok' }); };
   $('#salir', el).onclick = async () => {
@@ -57,7 +66,7 @@ export function vistaCuenta(el, _p, { cerrarSesion }) {
   };
 }
 
-const NOMBRE_OP = { vehiculo: 'Vehículo', evento: 'Registro', eliminarEvento: 'Eliminar registro', eliminarVehiculo: 'Baja de vehículo', quitarAdjunto: 'Quitar archivo' };
+const NOMBRE_OP = { vehiculo: 'Vehículo', evento: 'Registro', eliminarEvento: 'Eliminar registro', eliminarVehiculo: 'Baja de vehículo', quitarAdjunto: 'Quitar archivo', solicitud: 'Solicitud al administrador' };
 
 export function vistaSync(el) {
   const actualizar = async () => {
@@ -72,7 +81,7 @@ export function vistaSync(el) {
     const sub = estado.subida;
     pintar(el, html`
       <section class="pagina">
-        <div class="det-nav"><a class="volver" href="javascript:history.back()">${icono('atras')} Volver</a></div>
+        <div class="det-nav"><a class="volver" href="#/cuenta">${icono('atras')} Volver</a></div>
         <div class="titulo-pag"><h1>Sincronización</h1></div>
         <div class="panel estado-sync">
           <div class="${estado.online ? 'ok' : 'off'}">${icono(estado.online ? 'nube' : 'sinNube')}<span>${estado.online ? 'Con conexión' : 'Sin conexión'}</span></div>

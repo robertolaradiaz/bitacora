@@ -1,6 +1,6 @@
 // Formularios dinámicos: los campos los define el administrador.
-import { html, esc, fFecha, fNum, hoyISO, $$ } from './ui.js';
-import { estado } from './state.js';
+import { html, esc, fFecha, fNum, hoyISO, $$, icono } from './ui.js';
+import { estado, nombreUsuario, miEmail } from './state.js';
 
 export const opcionesDe = (c) => String(c.opciones || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -44,6 +44,19 @@ export function inputCampo(c, valor, { soloLectura = false } = {}) {
       control = html`<div class="chips-opciones" id="${id}" data-multiple="${c.clave}">
         ${ops.map((o) => html`<label class="chip-check"><input type="checkbox" value="${o}" ${sel.includes(o) ? html`checked` : ''}${dis}><span>${o}</span></label>`)}
       </div>`;
+      break;
+    }
+    case 'usuario': {
+      // Solo usuarios de la app; un valor antiguo escrito a mano se conserva hasta que se cambie
+      const lista = estado.usuarios.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      const actual = String(v);
+      const antiguo = actual && !lista.some((u) => u.email === actual.toLowerCase());
+      control = html`<select id="${id}" name="${c.clave}" data-usuario="${actual}"${req}${dis}>
+        <option value="">— Sin asignar —</option>
+        ${antiguo ? html`<option value="${actual}" selected>${actual} (texto anterior)</option>` : ''}
+        ${lista.map((u) => html`<option value="${u.email}" ${u.email === actual.toLowerCase() ? html`selected` : ''}>${u.nombre}${u.email === miEmail() ? ' (yo)' : ''}</option>`)}
+      </select>
+      <small class="aviso-asignacion" hidden></small>`;
       break;
     }
     case 'si_no':
@@ -111,8 +124,28 @@ export function mostrarValor(c, v) {
     case 'fecha': return fFecha(v);
     case 'numero': return /costo|precio|monto|valor|\$/i.test(c.clave + c.etiqueta) ? '$' + fNum(v) : fNum(v);
     case 'si_no': return v === true || v === 'true' ? 'Sí' : 'No';
+    case 'usuario': return nombreUsuario(v);
     default: return String(v);
   }
+}
+
+// Al elegir un responsable distinto, avisa que se le enviará un correo. Devuelve una función
+// que entrega los nombres de las personas que recibirán aviso al guardar.
+export function conectarAvisosResponsable(form, { patente = null, entidad = 'evento', solicitud = false } = {}) {
+  const selects = $$('select[data-usuario]', form);
+  const nuevos = () => selects.filter((s) => s.value && s.value !== s.dataset.usuario && s.value !== miEmail());
+  selects.forEach((s) => {
+    const nota = s.parentElement.querySelector('.aviso-asignacion');
+    const pintarNota = () => {
+      const u = estado.usuarios.find((x) => x.email === s.value);
+      if (!u || s.value === s.dataset.usuario || s.value === miEmail()) { nota.hidden = true; return; }
+      const sinAcceso = patente && u.patentes && !u.patentes.includes(String(patente).toUpperCase().replace(/[^A-Z0-9]/g, ''));
+      nota.innerHTML = html`${icono('correo', 'ico-xs')}<span>${solicitud ? 'Si el administrador aprueba, se' : 'Al guardar se'} le enviará un correo a <b>${u.nombre}</b> avisándole que es responsable${entidad === 'evento' ? ', y lo verá en «Asignados a mí»' : ''}.${sinAcceso ? html` <b class="txt-alerta">Ojo: no tiene acceso a este vehículo, así que no podrá verlo en la app.</b>` : ''}</span>`.toString();
+      nota.hidden = false;
+    };
+    s.addEventListener('change', pintarNota);
+  });
+  return () => nuevos().map((s) => nombreUsuario(s.value));
 }
 
 export function listaDatos(campos, reg, { excluir = [] } = {}) {

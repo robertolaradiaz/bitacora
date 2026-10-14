@@ -21,7 +21,8 @@ async function backendDemo() {
 }
 
 export async function llamar(accion, datos = {}, { timeout = 60000 } = {}) {
-  const req = { accion, ...datos, token };
+  // appUrl: el servidor la usa para poner el enlace a la app en los correos
+  const req = { accion, ...datos, token, appUrl: location.origin + location.pathname };
   if (esDemo()) {
     if (!navigator.onLine) throw new ErrorRed('Sin conexión');
     const b = await backendDemo();

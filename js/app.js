@@ -4,11 +4,17 @@ import { db } from './db.js';
 import { llamar, setToken, esDemo, ErrorApi } from './api.js';
 import { estado, on, emitir, esAdmin, nombreApp } from './state.js';
 import { cargarLocal, sincronizar, programarSync, contarPendientes } from './sync.js';
+import { registrarEntrada, reemplazar, volver, irPestana, hayPendiente } from './nav.js';
 import { pantallaLogin } from './views/login.js';
 import { vistaVehiculos, vistaVehiculo, vistaVehiculoForm } from './views/vehiculos.js';
 import { vistaRegistros, vistaEvento, vistaEventoForm } from './views/eventos.js';
 import { vistaAdmin, vistaUsuarios, vistaRoles, vistaCampos, vistaConfig } from './views/admin.js';
 import { vistaCuenta, vistaSync } from './views/cuenta.js';
+import { vistaSolicitudes, contarPendientesAdmin } from './views/solicitudes.js';
+import { ErrorSoloLectura } from './sync.js';
+import { salirVerComo } from './vercomo.js';
+import { esResponsable } from './state.js';
+import { estaAbierto } from './negocio.js';
 
 const raiz = document.getElementById('app');
 let vistaActual = null;
@@ -19,13 +25,16 @@ let vistaActual = null;
 const RUTAS = [
   [/^\/?$/, vistaVehiculos, 'vehiculos'],
   [/^\/v\/nuevo$/, (el) => vistaVehiculoForm(el, []), 'vehiculos'],
-  [/^\/v\/([^/]+)\/editar$/, vistaVehiculoForm, 'vehiculos'],
+  [/^\/v\/([^/]+)\/editar$/, (el, p) => vistaVehiculoForm(el, p), 'vehiculos'],
+  [/^\/v\/([^/]+)\/solicitar$/, (el, p) => vistaVehiculoForm(el, p, { solicitar: true }), 'vehiculos'],
   [/^\/v\/([^/]+)\/registro$/, (el, p) => vistaEventoForm(el, p), 'vehiculos'],
   [/^\/v\/([^/]+)$/, vistaVehiculo, 'vehiculos'],
   [/^\/e\/([^/]+)\/editar$/, (el, p) => vistaEventoForm(el, p, { editar: true }), 'registros'],
+  [/^\/e\/([^/]+)\/solicitar$/, (el, p) => vistaEventoForm(el, p, { solicitar: true }), 'registros'],
   [/^\/e\/([^/]+)$/, vistaEvento, 'registros'],
   [/^\/registros$/, vistaRegistros, 'registros'],
   [/^\/admin$/, vistaAdmin, 'admin'],
+  [/^\/admin\/solicitudes$/, vistaSolicitudes, 'admin'],
   [/^\/admin\/usuarios$/, vistaUsuarios, 'admin'],
   [/^\/admin\/roles$/, vistaRoles, 'admin'],
   [/^\/admin\/campos\/(vehiculo|evento)$/, vistaCampos, 'admin'],
@@ -35,9 +44,12 @@ const RUTAS = [
 ];
 
 async function navegar() {
-  const ruta = location.hash.replace(/^#/, '').split('#')[0];
   const main = $('#vista');
   if (!main) return;
+  if (!registrarEntrada()) return;
+  // El botón atrás también cierra los diálogos abiertos
+  $$('.modal-fondo [data-cerrar]').forEach((b) => b.click());
+  const ruta = location.hash.replace(/^#/, '').split('#')[0];
   if (vistaActual && vistaActual.salir) vistaActual.salir();
   vistaActual = null;
   for (const [re, fn, tab] of RUTAS) {
@@ -57,23 +69,37 @@ async function navegar() {
     }
     return;
   }
-  location.hash = '#/';
+  reemplazar('/');
 }
+
+// "Volver" retrocede en el historial en vez de abrir otra pantalla encima
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a.volver');
+  if (!a || e.ctrlKey || e.metaKey) return;
+  e.preventDefault();
+  volver(a.getAttribute('href') || '#/');
+});
 
 // ---------------------------------------------------------------------------
 //  Estructura (barra superior + menú inferior)
 // ---------------------------------------------------------------------------
 function montarShell() {
   pintar(raiz, html`
-    ${esDemo() ? html`<div class="cinta-demo">Modo demostración · los datos quedan solo en este dispositivo</div>` : ''}
+    ${esDemo() && !estado.verComo ? html`<div class="cinta-demo">Modo demostración · los datos quedan solo en este dispositivo</div>` : ''}
+    ${estado.verComo ? html`<div class="cinta-vercomo">${icono('ojo', 'ico-xs')}<span>Viendo como <b>${estado.verComo.nombre}</b> · solo lectura</span>
+      <button id="salirVerComo">Salir</button></div>` : ''}
     <header class="barra-sup">
       <a class="marca" href="#/" aria-label="Inicio"><img class="logo-barra" src="brand/unit-h-blanco.svg" alt="UNIT"><span class="marca-sep"></span><span class="marca-app">Bitácora</span></a>
       <a class="pastilla" id="pastilla" href="#/sync" aria-live="polite"></a>
     </header>
     <main id="vista" class="vista"></main>
     <nav class="tabbar" id="tabbar"></nav>`);
+  $('.barra-sup .marca').onclick = (e) => { e.preventDefault(); irPestana('/'); };
+  const salir = $('#salirVerComo');
+  if (salir) salir.onclick = () => salirVerComo();
   pintarTabs();
   pintarEstado();
+  pintarContadores();
 }
 
 function pintarTabs() {
@@ -81,12 +107,26 @@ function pintarTabs() {
   if (!nav) return;
   pintar(nav, html`
     <a href="#/" data-tab="vehiculos">${icono('auto')}<span>Vehículos</span></a>
-    <a href="#/registros" data-tab="registros">${icono('lista')}<span>Registros</span></a>
-    ${esAdmin() ? html`<a href="#/admin" data-tab="admin">${icono('ajustes')}<span>Admin</span></a>` : ''}
+    <a href="#/registros" data-tab="registros">${icono('lista')}<span>Registros</span><b class="globo" id="globoReg" hidden></b></a>
+    ${esAdmin() ? html`<a href="#/admin" data-tab="admin">${icono('ajustes')}<span>Admin</span><b class="globo" id="globoAdmin" hidden></b></a>` : ''}
     <a href="#/cuenta" data-tab="cuenta">${icono('usuario')}<span>Cuenta</span></a>`);
   const ruta = location.hash.replace(/^#/, '');
   const tab = (RUTAS.find(([re]) => re.test(ruta.split('#')[0])) || [])[2] || 'vehiculos';
-  $$('.tabbar a').forEach((a) => a.classList.toggle('activo', a.dataset.tab === tab));
+  $$('.tabbar a').forEach((a) => {
+    a.classList.toggle('activo', a.dataset.tab === tab);
+    a.onclick = (e) => { e.preventDefault(); irPestana(a.getAttribute('href')); };
+  });
+}
+
+// Globos del menú: registros abiertos asignados a mí y solicitudes por revisar (admin)
+async function pintarContadores() {
+  const evs = await db.all('eventos');
+  const asignados = evs.filter((e) => esResponsable(e) && estaAbierto(e)).length;
+  const gR = $('#globoReg');
+  if (gR) { gR.textContent = String(asignados); gR.hidden = !asignados; gR.title = 'Asignados a mí'; }
+  const gA = $('#globoAdmin');
+  const sol = contarPendientesAdmin();
+  if (gA) { gA.textContent = String(sol); gA.hidden = !sol; gA.title = 'Solicitudes por revisar'; }
 }
 
 function pintarEstado() {
@@ -148,6 +188,7 @@ async function iniciarSesion(r) {
 }
 
 async function cerrarSesion() {
+  if (estado.verComo) await salirVerComo({ silencioso: true });
   await db.borrarTodo();
   estado.sesion = null;
   estado.usuario = null;
@@ -165,13 +206,26 @@ on('estado', () => { pintarEstado(); if (vistaActual && vistaActual.enEstado) vi
 on('subida', () => { pintarEstado(); if (vistaActual && vistaActual.enSubida) vistaActual.enSubida(); });
 on('datos', () => {
   if (vistaActual && vistaActual.actualizar) vistaActual.actualizar();
+  pintarContadores();
 });
 on('meta', () => {
   document.title = 'Bitácora · ' + nombreApp();
   const tenia = !!$('.tabbar a[data-tab="admin"]');
   if (tenia !== esAdmin()) pintarTabs();
+  pintarContadores();
 });
+
+// Entrar o salir de "ver como" rehace la estructura (cinta superior y menú)
+on('shell', () => { montarShell(); navegar(); });
+
+// Intentos de guardar en modo "ver como" (solo lectura)
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason instanceof ErrorSoloLectura) { e.preventDefault(); aviso(e.reason.message, { tipo: 'error' }); }
+});
+// En la demo los correos no se envían: se muestran como aviso para poder probar
+window.addEventListener('demo-correo', (e) => aviso(`Demo · correo a ${e.detail.to}: «${e.detail.subject}»`, { duracion: 6000 }));
 on('auth', async (e) => {
+  if (estado.verComo) await salirVerComo({ silencioso: true });
   const email = (estado.sesion && estado.sesion.usuario.email) || '';
   estado.sesion = null;
   setToken(null);
@@ -180,6 +234,8 @@ on('auth', async (e) => {
 });
 
 window.addEventListener('hashchange', () => { if (estado.sesion) navegar(); });
+// Al cambiar de pestaña se retrocede en el historial; si la ruta no cambió, no hay "hashchange"
+window.addEventListener('popstate', () => { setTimeout(() => { if (hayPendiente() && estado.sesion) navegar(); }, 60); });
 window.addEventListener('online', () => { estado.online = true; pintarEstado(); programarSync(500); });
 window.addEventListener('offline', () => { estado.online = false; pintarEstado(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && estado.sesion) programarSync(300); });
@@ -192,17 +248,17 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 //  Service worker (funcionamiento sin conexión e instalación)
 // ---------------------------------------------------------------------------
+// Actualización automática: se busca una versión nueva al abrir, al volver a la app y
+// cada 30 minutos. El service worker nuevo se activa solo; aquí se avisa y se recarga.
+const enFormulario = () => /\/(editar|registro|nuevo|solicitar)$/.test(location.hash.split('#')[1] || '');
+
 function registrarSW() {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('sw.js').then((reg) => {
-    reg.addEventListener('updatefound', () => {
-      const nuevo = reg.installing;
-      nuevo.addEventListener('statechange', () => {
-        if (nuevo.state === 'installed' && navigator.serviceWorker.controller) {
-          aviso('Hay una nueva versión de la app', { duracion: 0, accion: { texto: 'Actualizar', fn: () => nuevo.postMessage('activar') } });
-        }
-      });
-    });
+    if (reg.waiting) reg.waiting.postMessage('activar'); // versión que quedó esperando (apps antiguas)
+    const buscar = () => { if (navigator.onLine) reg.update().catch(() => {}); };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') buscar(); });
+    setInterval(buscar, 30 * 60000);
   }).catch((e) => console.warn('SW no registrado', e));
   // Recargar solo cuando una versión nueva reemplaza a otra (no en la primera instalación)
   const habiaControlador = !!navigator.serviceWorker.controller;
@@ -210,7 +266,12 @@ function registrarSW() {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!habiaControlador || recargando) return;
     recargando = true;
-    location.reload();
+    const recargar = () => { aviso('Nueva versión instalada. Actualizando…', { tipo: 'ok', duracion: 0 }); setTimeout(() => location.reload(), 1500); };
+    // Si la persona está llenando un formulario, se espera a que salga de él para no perder lo escrito
+    if (!enFormulario()) { recargar(); return; }
+    aviso('Hay una nueva versión. Se actualizará al terminar este formulario.', { duracion: 6000 });
+    const alSalir = () => { if (!enFormulario()) { window.removeEventListener('hashchange', alSalir); recargar(); } };
+    window.addEventListener('hashchange', alSalir);
   });
 }
 

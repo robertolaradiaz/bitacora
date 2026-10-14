@@ -2,15 +2,17 @@
 import { html, pintar, icono, $, $$, aviso, modal, confirmar, esc } from '../ui.js';
 import { llamar, esDemo } from '../api.js';
 import { db } from '../db.js';
-import { estado, esAdmin } from '../state.js';
+import { estado, esAdmin, solicitudesPendientes } from '../state.js';
 import { sincronizar } from '../sync.js';
 import { formatoPatente } from '../negocio.js';
+import { entrarVerComo } from '../vercomo.js';
 
 let datos = null;
 
 const TIPOS = {
   texto: 'Texto corto', texto_largo: 'Texto largo', numero: 'Número', fecha: 'Fecha',
   seleccion: 'Lista (una opción)', multiple: 'Lista (varias opciones)', si_no: 'Sí / No',
+  usuario: 'Usuario de la app (responsable, avisa por correo)',
 };
 
 async function cargar(el, forzar = false) {
@@ -60,7 +62,12 @@ export async function vistaAdmin(el) {
       <div class="titulo-pag"><h1>Administración</h1></div>
       ${esDemo() ? html`<div class="banner banner-pend">${icono('alerta')} Modo demostración: los cambios solo se guardan en este dispositivo.</div>` : ''}
       <nav class="menu-admin">
-        <a href="#/admin/usuarios">${icono('usuario')}<div><strong>Usuarios y accesos</strong><span>Quién entra con su Gmail, su rol y qué vehículos ve</span></div></a>
+        ${(() => {
+          const n = solicitudesPendientes().filter((s) => !s._pendiente).length;
+          return html`<a href="#/admin/solicitudes" class="${n ? 'con-pendientes' : ''}">${icono('bandeja')}<div><strong>Solicitudes${n ? html` <span class="globo-inline">${n}</span>` : ''}</strong>
+            <span>${n ? `${n} pedido${n > 1 ? 's' : ''} de cambio esperando tu aprobación` : 'Cambios y eliminaciones que piden otros usuarios'}</span></div></a>`;
+        })()}
+        <a href="#/admin/usuarios">${icono('usuario')}<div><strong>Usuarios y accesos</strong><span>Quién entra con su Gmail, su rol y qué vehículos ve. También puedes ver la app como cada uno.</span></div></a>
         <a href="#/admin/roles">${icono('candado')}<div><strong>Roles y permisos</strong><span>Qué puede ver o hacer cada rol</span></div></a>
         <a href="#/admin/campos/evento">${icono('campos')}<div><strong>Campos de los registros</strong><span>Mantenciones, problemas, hallazgos…</span></div></a>
         <a href="#/admin/campos/vehiculo">${icono('auto')}<div><strong>Campos de los vehículos</strong><span>Ficha de cada vehículo</span></div></a>
@@ -94,10 +101,19 @@ export async function vistaUsuarios(el) {
               <span class="chip chip-neutro">${!u.vehiculos || u.vehiculos === '*' ? 'Todos los vehículos' : u.vehiculos.split(',').length + ' vehículo(s)'}</span>
               ${u.activo ? '' : html`<span class="chip chip-alerta">Inactivo</span>`}</span></div>
             ${icono('editar')}
-          </button></li>`)}</ul>
+          </button>
+          ${u.activo && u.email !== (estado.usuario || {}).email ? html`<button class="btn-vercomo" data-vercomo="${u.email}" title="Ver la app como ${u.nombre || u.email}">${icono('ojo')}<span>Ver como</span></button>` : ''}
+          </li>`)}</ul>
         <a class="fab" href="javascript:void 0" id="nuevo">${icono('mas')}<span>Usuario</span></a>
       </section>`);
     $$('[data-email]', el).forEach((b) => { b.onclick = () => editar(d.usuarios.find((u) => u.email === b.dataset.email)); });
+    $$('[data-vercomo]', el).forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true;
+        await entrarVerComo(d.usuarios.find((u) => u.email === b.dataset.vercomo));
+        b.disabled = false;
+      };
+    });
     $('#nuevo', el).onclick = (e) => { e.preventDefault(); editar(null); };
   };
 

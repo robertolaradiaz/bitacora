@@ -1,2 +1,2 @@
 // Versión visible en Cuenta. Súbela junto con VERSION en sw.js al publicar cambios.
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';

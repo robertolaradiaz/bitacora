@@ -23,7 +23,9 @@ const CONFIG = {
   GOOGLE_CLIENT_ID: 'PEGAR_AQUI_TU_CLIENT_ID.apps.googleusercontent.com',
   // Días que dura la sesión en el celular antes de pedir login de nuevo.
   DIAS_SESION: 30,
-  VERSION: '1.0.0',
+  VERSION: '1.3.0',
+  // Versión de la estructura de datos: al subir este número se ejecuta migrar_() sola.
+  VERSION_DATOS: 2,
 };
 
 const HOJAS = {
@@ -32,23 +34,27 @@ const HOJAS = {
   CAMPOS: 'Campos',
   VEHICULOS: 'Vehiculos',
   EVENTOS: 'Eventos',
+  SOLICITUDES: 'Solicitudes',
   CONFIG: 'Config',
   LOG: 'Log',
 };
 
 const PERMISOS = [
   ['ver_vehiculos', 'Ver vehículos y su ficha'],
-  ['editar_vehiculos', 'Crear, editar y dar de baja vehículos'],
+  ['crear_vehiculos', 'Crear vehículos y editar o dar de baja los que creó'],
+  ['editar_vehiculos', 'Editar y dar de baja cualquier vehículo'],
   ['ver_eventos', 'Ver todos los registros (no solo los propios)'],
   ['crear_eventos', 'Crear registros (mantenciones, problemas, hallazgos…)'],
   ['editar_eventos_propios', 'Editar los registros que creó'],
+  ['eliminar_eventos_propios', 'Eliminar los registros que creó'],
   ['editar_eventos', 'Editar cualquier registro'],
-  ['eliminar_eventos', 'Eliminar registros'],
-  ['subir_archivos', 'Adjuntar fotos, videos y audios'],
+  ['eliminar_eventos', 'Eliminar cualquier registro'],
+  ['solicitar_cambios', 'Pedir al administrador editar o eliminar registros y vehículos de otros'],
+  ['subir_archivos', 'Adjuntar fotos, videos, audios y documentos'],
   ['administrar', 'Administrar usuarios, roles, campos y configuración'],
 ];
 
-const TIPOS_CAMPO = ['texto', 'texto_largo', 'numero', 'fecha', 'seleccion', 'multiple', 'si_no'];
+const TIPOS_CAMPO = ['texto', 'texto_largo', 'numero', 'fecha', 'seleccion', 'multiple', 'si_no', 'usuario'];
 
 const COLUMNAS = {
   Usuarios: ['email', 'nombre', 'rol', 'vehiculos', 'activo', 'creado_en', 'actualizado_en'],
@@ -56,8 +62,17 @@ const COLUMNAS = {
   Campos: ['entidad', 'clave', 'etiqueta', 'tipo', 'opciones', 'requerido', 'por_defecto', 'orden', 'activo', 'sistema', 'alerta', 'ayuda'],
   Vehiculos: ['id', 'creado_por', 'creado_en', 'actualizado_por', 'actualizado_en', 'eliminado'],
   Eventos: ['id', 'vehiculo_id', 'adjuntos', 'creado_por', 'creado_en', 'actualizado_por', 'actualizado_en', 'eliminado'],
+  Solicitudes: ['id', 'tipo', 'entidad', 'registro_id', 'vehiculo_id', 'resumen', 'cambios', 'base_actualizado_en', 'motivo', 'estado',
+    'solicitado_por', 'solicitado_en', 'resuelto_por', 'resuelto_en', 'comentario'],
   Config: ['clave', 'valor', 'descripcion'],
   Log: ['fecha', 'email', 'accion', 'entidad', 'id', 'detalle'],
+};
+
+// Supervisor: crea directo y cambia lo propio; lo de otros, con aprobación del administrador.
+const PERMISOS_SUPERVISOR = {
+  ver_vehiculos: true, crear_vehiculos: true, editar_vehiculos: false, ver_eventos: true, crear_eventos: true,
+  editar_eventos_propios: true, eliminar_eventos_propios: true, editar_eventos: false, eliminar_eventos: false,
+  solicitar_cambios: true, subir_archivos: true, administrar: false,
 };
 
 // Columnas internas que no pueden usarse como clave de un campo.
@@ -79,7 +94,7 @@ function camposIniciales_() {
     ['vehiculo', 'vin', 'N° de chasis (VIN)', 'texto', '', false, '', false, false, ''],
     ['vehiculo', 'n_motor', 'N° de motor', 'texto', '', false, '', false, false, ''],
     ['vehiculo', 'kilometraje', 'Kilometraje actual', 'numero', '', false, '', false, false, ''],
-    ['vehiculo', 'responsable', 'Responsable / conductor asignado', 'texto', '', false, '', false, false, ''],
+    ['vehiculo', 'responsable', 'Responsable / conductor asignado', 'usuario', '', false, '', false, false, ''],
     ['vehiculo', 'venc_revision_tecnica', 'Vencimiento revisión técnica', 'fecha', '', false, '', false, true, ''],
     ['vehiculo', 'venc_permiso_circulacion', 'Vencimiento permiso de circulación', 'fecha', '', false, '', false, true, ''],
     ['vehiculo', 'venc_soap', 'Vencimiento SOAP', 'fecha', '', false, '', false, true, ''],
@@ -94,7 +109,7 @@ function camposIniciales_() {
     ['evento', 'prioridad', 'Prioridad', 'seleccion', 'Baja, Media, Alta, Crítica', false, 'Media', false, false, ''],
     ['evento', 'kilometraje', 'Kilometraje', 'numero', '', false, '', false, false, ''],
     ['evento', 'ubicacion', 'Ubicación', 'texto', '', false, '', false, false, ''],
-    ['evento', 'responsable', 'Responsable', 'texto', '', false, '', false, false, ''],
+    ['evento', 'responsable', 'Responsable', 'usuario', '', false, '', false, false, ''],
     ['evento', 'taller', 'Taller / proveedor', 'texto', '', false, '', false, false, ''],
     ['evento', 'costo', 'Costo ($)', 'numero', '', false, '', false, false, ''],
     ['evento', 'n_documento', 'N° factura / OT', 'texto', '', false, '', false, false, ''],
@@ -109,12 +124,12 @@ function camposIniciales_() {
 function rolesIniciales_() {
   const todos = {};
   PERMISOS.forEach(function (p) { todos[p[0]] = true; });
-  const sup = Object.assign({}, todos, { administrar: false });
+  const sup = Object.assign({}, PERMISOS_SUPERVISOR);
   const ninguno = {};
   PERMISOS.forEach(function (p) { ninguno[p[0]] = false; });
   return [
     Object.assign({ rol: 'Administrador', descripcion: 'Acceso total, incluida la administración' }, todos),
-    Object.assign({ rol: 'Supervisor', descripcion: 'Gestiona vehículos y todos los registros' }, sup),
+    Object.assign({ rol: 'Supervisor', descripcion: 'Crea vehículos y registros; para cambiar lo de otros pide aprobación' }, sup),
     Object.assign({ rol: 'Conductor', descripcion: 'Ve sus vehículos y reporta registros con fotos/videos/audios' }, ninguno,
       { ver_vehiculos: true, ver_eventos: true, crear_eventos: true, editar_eventos_propios: true, subir_archivos: true }),
     Object.assign({ rol: 'Lector', descripcion: 'Solo consulta' }, ninguno, { ver_vehiculos: true, ver_eventos: true }),
@@ -145,19 +160,7 @@ function setup() {
     props.setProperty('SESSION_SECRET', Utilities.getUuid() + Utilities.getUuid());
   }
 
-  Object.keys(COLUMNAS).forEach(function (nombre) {
-    let sh = ss.getSheetByName(nombre);
-    if (!sh) sh = ss.insertSheet(nombre);
-    const lastCol = sh.getLastColumn();
-    const actuales = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
-    const faltan = COLUMNAS[nombre].filter(function (c) { return actuales.indexOf(c) < 0; });
-    if (faltan.length) {
-      asegurarColumnas_(sh, actuales.length + faltan.length);
-      sh.getRange(1, actuales.length + 1, 1, faltan.length).setValues([faltan]);
-    }
-    sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#1f2a37').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-  });
+  crearHojas_(ss);
   // Eliminar la hoja vacía por defecto si existe
   ['Hoja 1', 'Sheet1', 'Hoja1'].forEach(function (n) {
     const h = ss.getSheetByName(n);
@@ -173,6 +176,7 @@ function setup() {
   configInicial_().forEach(function (c) {
     if (!tConfig.rows.some(function (r) { return r.clave === c[0]; })) escribir_(tConfig, { clave: c[0], valor: c[1], descripcion: c[2] });
   });
+  migrar_();
 
   // Primer administrador = dueño del script
   const yo = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
@@ -202,6 +206,63 @@ function setup() {
   ].join('\n');
   Logger.log(msg);
   return msg;
+}
+
+function crearHojas_(ss) {
+  Object.keys(COLUMNAS).forEach(function (nombre) {
+    let sh = ss.getSheetByName(nombre);
+    if (!sh) sh = ss.insertSheet(nombre);
+    const lastCol = sh.getLastColumn();
+    const actuales = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
+    const faltan = COLUMNAS[nombre].filter(function (c) { return actuales.indexOf(c) < 0; });
+    if (faltan.length) {
+      asegurarColumnas_(sh, actuales.length + faltan.length);
+      sh.getRange(1, actuales.length + 1, 1, faltan.length).setValues([faltan]);
+    }
+    sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#1f2a37').setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+  });
+}
+
+// Actualiza una planilla creada con una versión anterior. Es idempotente.
+function migrar_() {
+  const tConfig = leer_(HOJAS.CONFIG);
+  const reg = tConfig.rows.filter(function (r) { return r.clave === 'version_datos'; })[0];
+  if (reg && Number(reg.valor) >= CONFIG.VERSION_DATOS) return false;
+  crearHojas_(ss_());
+  // v2: responsables elegidos de la lista de usuarios y nuevo esquema de permisos del Supervisor
+  const tC = leer_(HOJAS.CAMPOS);
+  tC.rows.forEach(function (c) {
+    if (c.clave === 'responsable' && c.tipo === 'texto') { c.tipo = 'usuario'; escribir_(tC, c); }
+  });
+  const tR = leer_(HOJAS.ROLES);
+  tR.rows.forEach(function (r) {
+    if (String(r.rol) === 'Supervisor') {
+      Object.assign(r, PERMISOS_SUPERVISOR, { descripcion: 'Crea vehículos y registros; para cambiar lo de otros pide aprobación' });
+      escribir_(tR, r);
+    } else if (bool_(r.administrar)) {
+      PERMISOS.forEach(function (p) { r[p[0]] = true; });
+      escribir_(tR, r);
+    }
+  });
+  const nuevo = reg || { clave: 'version_datos', descripcion: 'Versión de la estructura de datos (no editar)' };
+  nuevo.valor = CONFIG.VERSION_DATOS;
+  escribir_(tConfig, nuevo);
+  limpiarCache_();
+  return true;
+}
+
+// En el primer uso tras publicar una versión nueva, migra la planilla sin intervención.
+function asegurarMigracion_() {
+  const cache = CacheService.getScriptCache();
+  const clave = 'datos_v' + CONFIG.VERSION_DATOS;
+  if (cache.get(clave)) return;
+  if (Number(configObj_().version_datos || 0) < CONFIG.VERSION_DATOS) {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try { migrar_(); } finally { lock.releaseLock(); }
+  }
+  cache.put(clave, '1', 21600);
 }
 
 function onOpen() {
@@ -238,9 +299,21 @@ function manejar_(req) {
     if (accion === 'login') return accionLogin_(req);
 
     const email = validarSesion_(req.token);
-    const ctx = contexto_(email);
+    asegurarMigracion_();
+    let ctx = contexto_(email);
+    ctx.correos = [];
+    ctx.appUrl = /^https?:\/\/[^\s"'<>]+$/.test(String(req.appUrl || '')) ? String(req.appUrl) : '';
+    // "Ver como": el administrador descarga los datos tal como los ve otro usuario (solo lectura)
+    if (accion === 'sync' && req.verComo) {
+      soloAdmin_(ctx);
+      try { ctx = contexto_(normEmail_(req.verComo)); } catch (e) { throw error_('VALIDACION', 'Ese usuario no existe o está inactivo'); }
+      ctx.verComo = true;
+      ctx.correos = [];
+    }
     const acciones = {
       sync: accionSync_,
+      resolverSolicitud: accionResolverSolicitud_,
+      anularSolicitud: accionAnularSolicitud_,
       subidaIniciar: accionSubidaIniciar_,
       subidaParte: accionSubidaParte_,
       subidaEstado: accionSubidaEstado_,
@@ -259,6 +332,7 @@ function manejar_(req) {
     };
     if (!acciones[accion]) throw error_('SOLICITUD', 'Acción desconocida: ' + accion);
     const r = acciones[accion](ctx, req);
+    enviarCorreos_(ctx);
     r.ok = true;
     return r;
   } catch (err) {
@@ -374,12 +448,36 @@ function puedeVerVehiculo_(ctx, v) {
 
 function puedeVerEvento_(ctx, ev, veh) {
   if (!puedeVerVehiculo_(ctx, veh)) return false;
-  return ctx.admin || ctx.permisos.ver_eventos || normEmail_(ev.creado_por) === ctx.email;
+  return ctx.admin || ctx.permisos.ver_eventos || esPropio_(ctx, ev) || esResponsable_(ev, ctx.email);
+}
+
+// El responsable asignado siempre ve el registro, aunque su rol no vea los de otros.
+function esResponsable_(ev, email) {
+  return camposDe_('evento').some(function (c) { return c.tipo === 'usuario' && normEmail_(ev[c.clave]) === email; });
+}
+
+function esPropio_(ctx, r) {
+  return !!r && normEmail_(r.creado_por) === ctx.email;
 }
 
 function puedeEditarEvento_(ctx, ev) {
   if (ctx.admin || ctx.permisos.editar_eventos) return true;
-  return ctx.permisos.editar_eventos_propios && normEmail_(ev.creado_por) === ctx.email;
+  return ctx.permisos.editar_eventos_propios && esPropio_(ctx, ev);
+}
+
+function puedeEliminarEvento_(ctx, ev) {
+  if (ctx.admin || ctx.permisos.eliminar_eventos) return true;
+  return ctx.permisos.eliminar_eventos_propios && esPropio_(ctx, ev);
+}
+
+function puedeCrearVehiculo_(ctx) {
+  return ctx.admin || ctx.permisos.editar_vehiculos || ctx.permisos.crear_vehiculos;
+}
+
+// Editar y dar de baja usan la misma regla.
+function puedeEditarVehiculo_(ctx, v) {
+  if (ctx.admin || ctx.permisos.editar_vehiculos) return true;
+  return ctx.permisos.crear_vehiculos && esPropio_(ctx, v);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +490,9 @@ function accionSync_(ctx, req) {
   const resultados = [];
   let tV = null, tE = null;
 
-  if (ops.length) {
+  if (ops.length && ctx.verComo) {
+    ops.forEach(function (op) { resultados.push({ opId: op.opId, ok: false, codigo: 'PERMISO', error: 'Modo "ver como": solo lectura' }); });
+  } else if (ops.length) {
     const lock = LockService.getScriptLock();
     lock.waitLock(30000);
     try {
@@ -446,10 +546,24 @@ function accionSync_(ctx, req) {
     permisos: ctx.permisos,
     campos: leerCache_(HOJAS.CAMPOS).map(publicoCampo_),
     config: configObj_(),
+    usuarios: listaUsuarios_(),
+    solicitudes: solicitudesVisibles_(ctx),
+    verComo: !!ctx.verComo,
     vehiculos: vehiculos,
     eventos: eventos,
     resultados: resultados,
   };
+}
+
+// Personas que se pueden elegir como responsables (solo usuarios activos).
+function listaUsuarios_() {
+  return leerCache_(HOJAS.USUARIOS).filter(function (u) { return bool_(u.activo); }).map(function (u) {
+    const lista = String(u.vehiculos || '').trim();
+    return {
+      email: normEmail_(u.email), nombre: String(u.nombre || u.email),
+      patentes: (lista && lista !== '*') ? lista.split(/[,;\n]+/).map(normPatente_).filter(String) : null,
+    };
+  });
 }
 
 function aplicarOp_(ctx, op, tV, tE) {
@@ -457,10 +571,11 @@ function aplicarOp_(ctx, op, tV, tE) {
   switch (op.op) {
     case 'vehiculo': return guardarVehiculo_(ctx, op.data || {}, tV, ahora);
     case 'evento': return guardarEvento_(ctx, op.data || {}, tV, tE, ahora);
+    case 'solicitud': return { solicitud: crearSolicitud_(ctx, op.data || {}, tV, tE, ahora) };
     case 'eliminarEvento': {
       const ev = buscar_(tE, op.id);
       if (!ev || bool_(ev.eliminado)) return { id: op.id, eliminado: true };
-      if (!(ctx.admin || ctx.permisos.eliminar_eventos)) throw error_('PERMISO', 'No tienes permiso para eliminar registros');
+      if (!puedeEliminarEvento_(ctx, ev)) throw error_('PERMISO', 'No tienes permiso para eliminar este registro');
       if (!puedeVerVehiculo_(ctx, buscar_(tV, ev.vehiculo_id))) throw error_('PERMISO', 'No tienes acceso a este vehículo');
       ev.eliminado = true; ev.actualizado_por = ctx.email; ev.actualizado_en = ahora;
       escribir_(tE, ev);
@@ -470,7 +585,7 @@ function aplicarOp_(ctx, op, tV, tE) {
     case 'eliminarVehiculo': {
       const v = buscar_(tV, op.id);
       if (!v || bool_(v.eliminado)) return { id: op.id, eliminado: true };
-      if (!(ctx.admin || ctx.permisos.editar_vehiculos)) throw error_('PERMISO', 'No tienes permiso para dar de baja vehículos');
+      if (!puedeEditarVehiculo_(ctx, v)) throw error_('PERMISO', 'No tienes permiso para dar de baja este vehículo');
       if (!puedeVerVehiculo_(ctx, v)) throw error_('PERMISO', 'No tienes acceso a este vehículo');
       v.eliminado = true; v.actualizado_por = ctx.email; v.actualizado_en = ahora;
       escribir_(tV, v);
@@ -496,15 +611,19 @@ function aplicarOp_(ctx, op, tV, tE) {
 }
 
 function guardarVehiculo_(ctx, data, tV, ahora) {
-  if (!(ctx.admin || ctx.permisos.editar_vehiculos)) throw error_('PERMISO', 'No tienes permiso para crear o editar vehículos');
   const id = String(data.id || '').trim() || Utilities.getUuid();
   const existente = buscar_(tV, id);
   if (existente && bool_(existente.eliminado)) throw error_('NO_ENCONTRADO', 'Este vehículo fue dado de baja');
   if (existente && !puedeVerVehiculo_(ctx, existente)) throw error_('PERMISO', 'No tienes acceso a este vehículo');
+  if (existente ? !puedeEditarVehiculo_(ctx, existente) : !puedeCrearVehiculo_(ctx)) {
+    throw error_('PERMISO', existente ? 'No tienes permiso para editar este vehículo' : 'No tienes permiso para crear vehículos');
+  }
 
   const campos = camposDe_('vehiculo');
   const limpio = limpiarDatos_(campos, data);
   if (limpio.patente !== undefined) limpio.patente = String(limpio.patente).toUpperCase().replace(/\s+/g, '').trim();
+  const antes = existente ? Object.assign({}, existente) : {};
+  validarUsuarios_(campos, limpio, antes);
 
   const reg = existente ? Object.assign(existente, limpio) : Object.assign({ id: id, creado_por: ctx.email, creado_en: ahora, eliminado: false }, limpio);
   validarRequeridos_(campos, reg);
@@ -515,6 +634,7 @@ function guardarVehiculo_(ctx, data, tV, ahora) {
   reg.actualizado_en = ahora;
   escribir_(tV, reg);
   log_(ctx.email, existente ? 'editar' : 'crear', 'vehiculo', id, reg.patente);
+  avisarAsignaciones_(ctx, campos, antes, reg, 'vehiculo', reg);
   return publico_(reg);
 }
 
@@ -533,6 +653,8 @@ function guardarEvento_(ctx, data, tV, tE, ahora) {
   }
   const campos = camposDe_('evento');
   const limpio = limpiarDatos_(campos, data);
+  const antes = existente ? Object.assign({}, existente) : {};
+  validarUsuarios_(campos, limpio, antes);
   const reg = existente ? Object.assign(existente, limpio) : Object.assign({
     id: id, vehiculo_id: vehiculoId, adjuntos: '[]', creado_por: ctx.email, creado_en: ahora, eliminado: false,
   }, limpio);
@@ -541,7 +663,31 @@ function guardarEvento_(ctx, data, tV, tE, ahora) {
   reg.actualizado_en = ahora;
   escribir_(tE, reg);
   log_(ctx.email, existente ? 'editar' : 'crear', 'evento', id, veh.patente + ' · ' + (reg.titulo || reg.tipo || ''));
+  avisarAsignaciones_(ctx, campos, antes, reg, 'evento', veh);
   return publico_(reg);
+}
+
+// Los campos de tipo "usuario" solo aceptan usuarios activos (o el valor que ya tenían).
+function validarUsuarios_(campos, limpio, antes) {
+  const activos = listaUsuarios_().map(function (u) { return u.email; });
+  campos.forEach(function (c) {
+    if (c.tipo !== 'usuario' || !Object.prototype.hasOwnProperty.call(limpio, c.clave)) return;
+    const v = String(limpio[c.clave] || '').trim();
+    if (!v || v === String(antes[c.clave] || '')) return;
+    const email = normEmail_(v);
+    if (activos.indexOf(email) < 0) throw error_('VALIDACION', '"' + c.etiqueta + '" debe ser un usuario de la app');
+    limpio[c.clave] = email;
+  });
+}
+
+// Prepara un correo para cada persona recién asignada en un campo de tipo "usuario".
+function avisarAsignaciones_(ctx, campos, antes, reg, entidad, veh) {
+  campos.forEach(function (c) {
+    if (c.tipo !== 'usuario' || !bool_(c.activo)) return;
+    const nuevo = normEmail_(reg[c.clave]);
+    if (!nuevo || nuevo === normEmail_(antes[c.clave]) || nuevo === ctx.email) return;
+    ctx.correos.push(correoAsignacion_(ctx, nuevo, c, entidad, reg, veh));
+  });
 }
 
 function limpiarDatos_(campos, data) {
@@ -583,6 +729,253 @@ function validarRequeridos_(campos, reg) {
       if (v === '' || v === null || v === undefined) throw error_('VALIDACION', 'El campo "' + c.etiqueta + '" es obligatorio');
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+//  SOLICITUDES: editar o eliminar lo de otros con aprobación del administrador
+// ---------------------------------------------------------------------------
+
+function registroDeSolicitud_(ctx, entidad, id, tV, tE) {
+  if (entidad === 'evento') {
+    const ev = buscar_(tE, id);
+    const veh = ev ? buscar_(tV, ev.vehiculo_id) : null;
+    if (!ev || bool_(ev.eliminado) || !veh || bool_(veh.eliminado)) throw error_('NO_ENCONTRADO', 'El registro no existe o fue eliminado');
+    if (!puedeVerEvento_(ctx, ev, veh)) throw error_('PERMISO', 'No tienes acceso a este registro');
+    return { reg: ev, veh: veh };
+  }
+  if (entidad === 'vehiculo') {
+    const v = buscar_(tV, id);
+    if (!v || bool_(v.eliminado)) throw error_('NO_ENCONTRADO', 'El vehículo no existe o fue dado de baja');
+    if (!puedeVerVehiculo_(ctx, v)) throw error_('PERMISO', 'No tienes acceso a este vehículo');
+    return { reg: v, veh: v };
+  }
+  throw error_('SOLICITUD', 'Tipo de registro inválido');
+}
+
+function crearSolicitud_(ctx, d, tV, tE, ahora) {
+  if (ctx.admin || !ctx.permisos.solicitar_cambios) throw error_('PERMISO', 'No puedes enviar solicitudes de cambio');
+  const tipo = String(d.tipo || '');
+  const entidad = String(d.entidad || '');
+  if (['editar', 'eliminar'].indexOf(tipo) < 0) throw error_('SOLICITUD', 'Tipo de solicitud inválido');
+  const x = registroDeSolicitud_(ctx, entidad, String(d.registro_id || ''), tV, tE);
+  const directo = entidad === 'vehiculo' ? puedeEditarVehiculo_(ctx, x.reg)
+    : tipo === 'editar' ? puedeEditarEvento_(ctx, x.reg) : puedeEliminarEvento_(ctx, x.reg);
+  if (directo) throw error_('VALIDACION', 'Puedes hacer este cambio directamente, sin solicitud');
+  const motivo = String(d.motivo || '').trim().slice(0, 2000);
+  if (!motivo) throw error_('VALIDACION', 'Explica el motivo de la solicitud');
+
+  const cambios = {};
+  if (tipo === 'editar') {
+    const campos = camposDe_(entidad);
+    const limpio = limpiarDatos_(campos, d.datos || {});
+    if (limpio.patente !== undefined) limpio.patente = String(limpio.patente).toUpperCase().replace(/\s+/g, '').trim();
+    validarUsuarios_(campos, limpio, x.reg);
+    Object.keys(limpio).forEach(function (k) {
+      const antes = x.reg[k] === undefined || x.reg[k] === null ? '' : x.reg[k];
+      if (String(antes) !== String(limpio[k])) cambios[k] = [antes, limpio[k]];
+    });
+    if (!Object.keys(cambios).length) throw error_('VALIDACION', 'La solicitud no tiene cambios');
+  }
+
+  const tS = leer_(HOJAS.SOLICITUDES);
+  let s = tS.rows.filter(function (r) {
+    return r.estado === 'pendiente' && normEmail_(r.solicitado_por) === ctx.email && String(r.registro_id) === String(x.reg.id) && r.tipo === tipo;
+  })[0];
+  const datos = {
+    tipo: tipo, entidad: entidad, registro_id: x.reg.id, vehiculo_id: x.veh.id,
+    resumen: entidad === 'evento' ? x.veh.patente + ' · ' + (x.reg.titulo || x.reg.tipo || 'Registro') : x.reg.patente + ' · ' + ([x.reg.marca, x.reg.modelo].filter(String).join(' ') || 'Vehículo'),
+    cambios: JSON.stringify(cambios), base_actualizado_en: x.reg.actualizado_en || '', motivo: motivo, estado: 'pendiente',
+    solicitado_por: ctx.email, solicitado_en: ahora,
+  };
+  s = s ? Object.assign(s, datos) : Object.assign({ id: String(d.id || '') || Utilities.getUuid() }, datos);
+  escribir_(tS, s);
+  log_(ctx.email, 'solicitar_' + tipo, entidad, x.reg.id, motivo);
+  adminsActivos_().forEach(function (email) { ctx.correos.push(correoSolicitud_(ctx, email, s)); });
+  return publicoSolicitud_(s);
+}
+
+function adminsActivos_() {
+  const roles = leerCache_(HOJAS.ROLES).filter(function (r) { return bool_(r.administrar); }).map(function (r) { return String(r.rol); });
+  return leerCache_(HOJAS.USUARIOS).filter(function (u) { return bool_(u.activo) && roles.indexOf(String(u.rol)) >= 0; })
+    .map(function (u) { return normEmail_(u.email); });
+}
+
+function solicitudesVisibles_(ctx) {
+  let filas;
+  try { filas = leer_(HOJAS.SOLICITUDES).rows; } catch (e) { return []; }
+  const limite = new Date(Date.now() - 30 * 86400000).toISOString();
+  return filas.filter(function (s) {
+    if (s.estado !== 'pendiente' && String(s.resuelto_en || s.solicitado_en) < limite) return false;
+    return (ctx.admin && !ctx.verComo) || normEmail_(s.solicitado_por) === ctx.email;
+  }).map(publicoSolicitud_).sort(function (a, b) { return String(b.solicitado_en).localeCompare(String(a.solicitado_en)); }).slice(0, 200);
+}
+
+function publicoSolicitud_(s) {
+  return {
+    id: String(s.id), tipo: s.tipo, entidad: s.entidad, registro_id: String(s.registro_id), vehiculo_id: String(s.vehiculo_id || ''),
+    resumen: String(s.resumen || ''), cambios: parseJson_(s.cambios, {}), base_actualizado_en: String(s.base_actualizado_en || ''),
+    motivo: String(s.motivo || ''), estado: s.estado, solicitado_por: normEmail_(s.solicitado_por), solicitado_en: String(s.solicitado_en || ''),
+    resuelto_por: String(s.resuelto_por || ''), resuelto_en: String(s.resuelto_en || ''), comentario: String(s.comentario || ''),
+  };
+}
+
+function accionResolverSolicitud_(ctx, req) {
+  soloAdmin_(ctx);
+  const aprobar = req.aprobar === true;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const tS = leer_(HOJAS.SOLICITUDES);
+    const s = buscar_(tS, req.id);
+    if (!s) throw error_('NO_ENCONTRADO', 'La solicitud no existe');
+    if (s.estado !== 'pendiente') throw error_('VALIDACION', 'Esta solicitud ya fue ' + s.estado);
+    const ahora = ahora_();
+    let registro = null;
+    if (aprobar) {
+      const tV = leer_(HOJAS.VEHICULOS);
+      const tE = leer_(HOJAS.EVENTOS);
+      if (s.tipo === 'eliminar') {
+        registro = aplicarOp_(ctx, { op: s.entidad === 'evento' ? 'eliminarEvento' : 'eliminarVehiculo', id: s.registro_id }, tV, tE);
+      } else {
+        const datos = { id: s.registro_id };
+        const cambios = parseJson_(s.cambios, {});
+        Object.keys(cambios).forEach(function (k) { datos[k] = cambios[k][1]; });
+        registro = s.entidad === 'evento' ? guardarEvento_(ctx, datos, tV, tE, ahora) : guardarVehiculo_(ctx, datos, tV, ahora);
+      }
+    }
+    s.estado = aprobar ? 'aprobada' : 'rechazada';
+    s.resuelto_por = ctx.email;
+    s.resuelto_en = ahora;
+    s.comentario = String(req.comentario || '').trim().slice(0, 2000);
+    escribir_(tS, s);
+    log_(ctx.email, aprobar ? 'aprobar_solicitud' : 'rechazar_solicitud', s.entidad, s.registro_id, s.resumen);
+    if (normEmail_(s.solicitado_por) !== ctx.email) ctx.correos.push(correoResolucion_(ctx, s));
+    return { solicitud: publicoSolicitud_(s), registro: registro };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function accionAnularSolicitud_(ctx, req) {
+  return conLock_(function () {
+    const tS = leer_(HOJAS.SOLICITUDES);
+    const s = buscar_(tS, req.id);
+    if (!s || normEmail_(s.solicitado_por) !== ctx.email) throw error_('NO_ENCONTRADO', 'La solicitud no existe');
+    if (s.estado !== 'pendiente') throw error_('VALIDACION', 'Esta solicitud ya fue ' + s.estado);
+    s.estado = 'anulada';
+    s.resuelto_por = ctx.email;
+    s.resuelto_en = ahora_();
+    escribir_(tS, s);
+    log_(ctx.email, 'anular_solicitud', s.entidad, s.registro_id, s.resumen);
+    return { solicitud: publicoSolicitud_(s) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+//  CORREOS (asignaciones y solicitudes)
+// ---------------------------------------------------------------------------
+
+function nombreDe_(email) {
+  const u = listaUsuarios_().filter(function (x) { return x.email === normEmail_(email); })[0];
+  return u ? u.nombre : String(email || '');
+}
+
+function escHtml_(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function valorLegible_(c, v) {
+  if (v === '' || v === null || v === undefined) return '—';
+  if (c && c.tipo === 'usuario') return nombreDe_(v);
+  if (c && c.tipo === 'si_no') return bool_(v) ? 'Sí' : 'No';
+  return String(v);
+}
+
+function enlaceApp_(ctx, ruta) {
+  return ctx.appUrl ? ctx.appUrl.replace(/#.*$/, '') + '#/' + ruta : '';
+}
+
+function plantillaCorreo_(titulo, intro, filas, enlace, boton) {
+  const empresa = escHtml_(configObj_().nombre_empresa || 'UNIT');
+  return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1a1a1a">' +
+    '<div style="background:#000;color:#fff;padding:14px 20px;font-weight:bold;font-size:15px">Bitácora de Vehículos · <span style="color:#FA6A09">' + empresa + '</span></div>' +
+    '<div style="padding:20px;border:1px solid #E6E3DF;border-top:4px solid #FA6A09">' +
+    '<h2 style="margin:0 0 10px;font-size:19px">' + escHtml_(titulo) + '</h2>' +
+    '<p style="margin:0 0 14px;line-height:1.5">' + intro + '</p>' +
+    (filas.length ? '<table style="border-collapse:collapse;width:100%;font-size:14px">' + filas.map(function (f) {
+      return '<tr><td style="padding:6px 10px 6px 0;color:#666;vertical-align:top;white-space:nowrap">' + escHtml_(f[0]) + '</td>' +
+        '<td style="padding:6px 0;vertical-align:top">' + escHtml_(f[1]) + '</td></tr>';
+    }).join('') + '</table>' : '') +
+    (enlace ? '<p style="margin:20px 0 0"><a href="' + escHtml_(enlace) + '" style="background:#FA6A09;color:#fff;text-decoration:none;padding:11px 18px;border-radius:8px;font-weight:bold;display:inline-block">' + escHtml_(boton) + '</a></p>' : '') +
+    '</div><p style="font-size:12px;color:#888;padding:0 4px">Mensaje automático de la Bitácora de Vehículos. No es necesario responder.</p></div>';
+}
+
+function correoAsignacion_(ctx, para, campo, entidad, reg, veh) {
+  const quien = escHtml_(ctx.nombre || ctx.email);
+  if (entidad === 'vehiculo') {
+    return {
+      para: para, asunto: 'Te asignaron el vehículo ' + reg.patente,
+      html: plantillaCorreo_('Vehículo ' + reg.patente, quien + ' te asignó como <b>' + escHtml_(campo.etiqueta) + '</b> de este vehículo.',
+        [['Vehículo', [reg.marca, reg.modelo, reg.anio].filter(String).join(' ') || '—'], ['Patente', reg.patente]],
+        enlaceApp_(ctx, 'v/' + reg.id), 'Ver el vehículo en la app'),
+    };
+  }
+  const titulo = reg.titulo || reg.tipo || 'Registro';
+  return {
+    para: para, asunto: 'Te asignaron: ' + titulo + ' · ' + veh.patente,
+    html: plantillaCorreo_(titulo, quien + ' te asignó como <b>' + escHtml_(campo.etiqueta) + '</b> de este registro.',
+      [['Vehículo', veh.patente + ' · ' + ([veh.marca, veh.modelo].filter(String).join(' ') || '')], ['Tipo', reg.tipo || '—'], ['Fecha', reg.fecha || '—'],
+        ['Estado', reg.estado || '—'], ['Prioridad', reg.prioridad || '—'], ['Descripción', String(reg.descripcion || '—').slice(0, 400)]],
+      enlaceApp_(ctx, 'e/' + reg.id), 'Ver el registro en la app'),
+  };
+}
+
+function filasCambios_(s) {
+  const campos = camposDe_(s.entidad);
+  const cambios = parseJson_(s.cambios, {});
+  return Object.keys(cambios).map(function (k) {
+    const c = campos.filter(function (x) { return x.clave === k; })[0];
+    return [c ? c.etiqueta : k, valorLegible_(c, cambios[k][0]) + '  →  ' + valorLegible_(c, cambios[k][1])];
+  });
+}
+
+function correoSolicitud_(ctx, para, s) {
+  const accion = s.tipo === 'eliminar' ? (s.entidad === 'vehiculo' ? 'dar de baja' : 'eliminar') : 'modificar';
+  return {
+    para: para, asunto: 'Solicitud para ' + accion + ': ' + s.resumen,
+    html: plantillaCorreo_('Solicitud para ' + accion, escHtml_(ctx.nombre || ctx.email) + ' pide ' + accion + ' <b>' + escHtml_(s.resumen) + '</b>. Necesita tu aprobación.',
+      filasCambios_(s).concat([['Motivo', s.motivo]]), enlaceApp_(ctx, 'admin/solicitudes'), 'Revisar la solicitud'),
+  };
+}
+
+function correoResolucion_(ctx, s) {
+  const aprobada = s.estado === 'aprobada';
+  const ruta = aprobada && s.tipo === 'eliminar' ? (s.entidad === 'evento' ? 'v/' + s.vehiculo_id : '') : (s.entidad === 'evento' ? 'e/' : 'v/') + s.registro_id;
+  return {
+    para: normEmail_(s.solicitado_por), asunto: 'Tu solicitud fue ' + s.estado + ': ' + s.resumen,
+    html: plantillaCorreo_('Solicitud ' + s.estado, escHtml_(ctx.nombre || ctx.email) + (aprobada ? ' aprobó' : ' rechazó') + ' tu solicitud sobre <b>' + escHtml_(s.resumen) + '</b>.',
+      s.comentario ? [['Comentario', s.comentario]] : [], enlaceApp_(ctx, ruta), 'Abrir la app'),
+  };
+}
+
+// Se envían al final de la operación, cuando ya quedó guardada. Un fallo de correo no la deshace.
+function enviarCorreos_(ctx) {
+  const vistos = {};
+  (ctx.correos || []).forEach(function (m) {
+    const k = m.para + '|' + m.asunto;
+    if (vistos[k] || !m.para) return;
+    vistos[k] = true;
+    try {
+      MailApp.sendEmail({ to: m.para, subject: m.asunto, htmlBody: m.html, name: 'Bitácora de Vehículos' });
+      log_(ctx.email, 'correo', 'correo', m.para, m.asunto);
+    } catch (e) {
+      console.error(e);
+      log_(ctx.email, 'correo_error', 'correo', m.para, (e && e.message) || String(e));
+    }
+  });
+  ctx.correos = [];
 }
 
 // ---------------------------------------------------------------------------

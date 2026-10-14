@@ -510,3 +510,39 @@ code { background: var(--sup-2); padding: 1px 6px; border-radius: 6px; font-size
 .login-b .login-marca { color: #000; }
 .login-b .logo-sobre-naranjo { display: none; }
 .login-b .login-caja { border: 1px solid var(--borde); }
+
+/* --- v1.3: responsables, solicitudes y "ver como" --------------------------- */
+.cinta-vercomo { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--acento); color: var(--acento-tinta); font-size: 13px; font-weight: 600; padding: 5px 12px; position: sticky; top: 0; z-index: 30; }
+.cinta-vercomo button { background: #000; color: #fff; border: 0; border-radius: 99px; padding: 3px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.globo { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--acento); color: var(--acento-tinta); font-size: 11px; font-weight: 700; display: grid; place-items: center; line-height: 1; }
+.globo[hidden] { display: none; }
+.globo-inline { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--acento); color: var(--acento-tinta); font-size: 12px; margin-left: 4px; }
+.menu-admin a.con-pendientes { border-color: var(--acento); }
+.num-filtro:empty { display: none; }
+.num-filtro { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 2px; border-radius: 99px; background: var(--acento); color: var(--acento-tinta); font-size: 11px; font-weight: 700; }
+.chip-asignado { background: var(--acento); color: var(--acento-tinta); border-color: transparent; }
+.aviso-asignacion { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--sup-2); border: 1px dashed var(--acento); color: var(--tinta-2); font-size: 13px; line-height: 1.4; }
+.aviso-asignacion[hidden] { display: none; }
+.aviso-asignacion .ico { color: var(--marca-2); flex: none; margin-top: 2px; }
+.banner-solicitud { background: var(--medio-bg); color: var(--medio); align-items: flex-start; }
+.banner-solicitud > .ico { flex: none; margin-top: 2px; }
+.banner-solicitud .btn-link { display: inline; margin: 0 0 0 4px; padding: 0; color: inherit; text-decoration: underline; }
+.lista-solicitudes { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 10px; }
+.solicitud { display: grid; gap: 6px; }
+.solicitud.rechazada, .solicitud.anulada { opacity: .75; }
+.sol-cab { display: flex; gap: 6px; flex-wrap: wrap; }
+.sol-cab .chip { text-transform: capitalize; }
+.sol-titulo { font-family: var(--fuente-tit); font-weight: 700; font-size: 17px; color: var(--tinta); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.sol-meta { margin: 0; color: var(--tinta-3); font-size: 13px; }
+.sol-motivo { margin: 0; font-size: 14px; }
+.sol-acciones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.solicitud .txt-alerta { margin: 0; font-size: 13px; display: flex; gap: 4px; align-items: center; }
+.tabla-cambios { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tabla-cambios th { text-align: left; color: var(--tinta-3); font-weight: 600; font-size: 12px; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--borde); }
+.tabla-cambios td { padding: 6px 6px 6px 0; border-bottom: 1px solid var(--borde); vertical-align: top; word-break: break-word; }
+.tabla-cambios .antes { color: var(--tinta-3); text-decoration: line-through; }
+.tabla-cambios .despues { font-weight: 650; }
+.lista-admin li { display: flex; gap: 6px; align-items: stretch; }
+.lista-admin li > button[data-email] { flex: 1; min-width: 0; }
+.btn-vercomo { width: auto !important; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px 10px !important; font-size: 11.5px; font-weight: 650; color: var(--tinta-2); }
+.btn-vercomo .ico { color: var(--marca-2) !important; }

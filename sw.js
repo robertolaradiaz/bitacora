@@ -1,6 +1,6 @@
 // Service worker: guarda la app en el teléfono para que abra sin conexión.
 // Cambia VERSION cada vez que publiques cambios para que los teléfonos se actualicen.
-const VERSION = 'bitacora-v1.2.0';
+const VERSION = 'bitacora-v1.3.0';
 const ARCHIVOS = [
   './',
   'index.html',
@@ -12,7 +12,9 @@ const ARCHIVOS = [
   'js/config.js',
   'js/db.js',
   'js/media.js',
+  'js/nav.js',
   'js/negocio.js',
+  'js/vercomo.js',
   'js/state.js',
   'js/sync.js',
   'js/ui.js',
@@ -22,6 +24,7 @@ const ARCHIVOS = [
   'js/views/cuenta.js',
   'js/views/eventos.js',
   'js/views/login.js',
+  'js/views/solicitudes.js',
   'js/views/vehiculos.js',
   'demo/emulador.js',
   'demo/Code.gs',
@@ -42,8 +45,9 @@ const ARCHIVOS = [
   'icons/apple-touch-icon.png',
 ];
 
+// La versión nueva se activa sola apenas termina de descargarse (sin esperar a que se cierre la app).
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS)));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

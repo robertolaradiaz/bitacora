@@ -1,7 +1,7 @@
 // MODO DEMO: ejecuta el MISMO código del backend (Code.gs) dentro del navegador,
 // simulando Google Sheets, Drive y la verificación de Google con datos guardados
 // en este dispositivo. Sirve para probar la app antes de conectarla a Google.
-const CLAVE = 'bitacora_demo_v1';
+const CLAVE = 'bitacora_demo_v2';
 const TZ_LOCAL = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'America/Santiago';
 
 export const USUARIOS_DEMO = [
@@ -147,6 +147,12 @@ function crearEstado(guardado) {
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => 'admin@demo.cl' }), getScriptTimeZone: () => TZ_LOCAL },
     ScriptApp: { getOAuthToken: () => 'DEMO' },
+    // En la demo los correos no se envían: quedan guardados y se muestran en la consola.
+    MailApp: { sendEmail: (m) => {
+      (st.correos = st.correos || []).push({ to: m.to, subject: m.subject, fecha: new Date().toISOString() });
+      console.info('[demo] correo a', m.to, '·', m.subject);
+      if (!st.cargandoSemilla) setTimeout(() => window.dispatchEvent(new CustomEvent('demo-correo', { detail: { to: m.to, subject: m.subject } })), 0);
+    } },
     Logger: { log() {} },
     console: { log() {}, error: (...a) => console.error('[demo-backend]', ...a) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ setMimeType: () => s }) },
@@ -228,14 +234,14 @@ function semilla(manejar) {
   m('guardarUsuario', { usuario: { email: 'conductor@demo.cl', nombre: 'Pedro Conductor', rol: 'Conductor', vehiculos: 'HJKL23, PRTZ45' } });
   m('guardarUsuario', { usuario: { email: 'lector@demo.cl', nombre: 'Laura Lectora', rol: 'Lector', vehiculos: '*' } });
   const V = [
-    { id: 'demo-v1', patente: 'HJKL23', tipo_vehiculo: 'Camioneta', marca: 'Toyota', modelo: 'Hilux 2.4 4x4', anio: 2021, color: 'Blanco', kilometraje: 84500, responsable: 'Pedro Conductor', venc_revision_tecnica: dia(12), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
-    { id: 'demo-v2', patente: 'PRTZ45', tipo_vehiculo: 'Furgón', marca: 'Mercedes-Benz', modelo: 'Sprinter 515', anio: 2019, color: 'Gris', kilometraje: 152300, responsable: 'Pedro Conductor', venc_revision_tecnica: dia(-20), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
-    { id: 'demo-v3', patente: 'GFDS78', tipo_vehiculo: 'Camión', marca: 'Volvo', modelo: 'FH 460', anio: 2018, color: 'Rojo', kilometraje: 410200, responsable: 'Juan Pérez', venc_revision_tecnica: dia(95), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
-    { id: 'demo-v4', patente: 'LKJH90', tipo_vehiculo: 'Automóvil', marca: 'Hyundai', modelo: 'Accent', anio: 2022, color: 'Azul', kilometraje: 38900, responsable: 'Oficina', venc_revision_tecnica: dia(230), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
+    { id: 'demo-v1', patente: 'HJKL23', tipo_vehiculo: 'Camioneta', marca: 'Toyota', modelo: 'Hilux 2.4 4x4', anio: 2021, color: 'Blanco', kilometraje: 84500, responsable: 'conductor@demo.cl', venc_revision_tecnica: dia(12), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
+    { id: 'demo-v2', patente: 'PRTZ45', tipo_vehiculo: 'Furgón', marca: 'Mercedes-Benz', modelo: 'Sprinter 515', anio: 2019, color: 'Gris', kilometraje: 152300, responsable: 'conductor@demo.cl', venc_revision_tecnica: dia(-20), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
+    { id: 'demo-v3', patente: 'GFDS78', tipo_vehiculo: 'Camión', marca: 'Volvo', modelo: 'FH 460', anio: 2018, color: 'Rojo', kilometraje: 410200, responsable: 'supervisor@demo.cl', venc_revision_tecnica: dia(95), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
+    { id: 'demo-v4', patente: 'LKJH90', tipo_vehiculo: 'Automóvil', marca: 'Hyundai', modelo: 'Accent', anio: 2022, color: 'Azul', kilometraje: 38900, venc_revision_tecnica: dia(230), venc_permiso_circulacion: dia(170), venc_soap: dia(170) },
   ];
   const E = [
     { id: 'demo-e1', vehiculo_id: 'demo-v1', tipo: 'Mantención preventiva', fecha: dia(-40), titulo: 'Mantención 80.000 km', descripcion: 'Cambio de aceite, filtros de aire, aceite y combustible. Revisión de frenos OK.', estado: 'Resuelto', prioridad: 'Media', kilometraje: 80150, taller: 'Taller Los Andes', costo: 189000, n_documento: 'OT-2231', proxima_fecha: dia(50), proximo_km: 90000 },
-    { id: 'demo-e2', vehiculo_id: 'demo-v1', tipo: 'Hallazgo / inspección', fecha: dia(-3), titulo: 'Neumático trasero izquierdo con desgaste irregular', descripcion: 'Detectado en inspección diaria. Posible problema de alineación.', estado: 'Abierto', prioridad: 'Alta', kilometraje: 84400, responsable: 'Pedro Conductor' },
+    { id: 'demo-e2', vehiculo_id: 'demo-v1', tipo: 'Hallazgo / inspección', fecha: dia(-3), titulo: 'Neumático trasero izquierdo con desgaste irregular', descripcion: 'Detectado en inspección diaria. Posible problema de alineación.', estado: 'Abierto', prioridad: 'Alta', kilometraje: 84400, responsable: 'conductor@demo.cl' },
     { id: 'demo-e3', vehiculo_id: 'demo-v2', tipo: 'Problema / falla', fecha: dia(-8), titulo: 'Luz de check engine encendida', descripcion: 'Se enciende en frío y se apaga a los 10 minutos. Código P0401 según escáner.', estado: 'En proceso', prioridad: 'Alta', kilometraje: 152100, taller: 'Servicio Mercedes Quilicura' },
     { id: 'demo-e4', vehiculo_id: 'demo-v2', tipo: 'Revisión técnica', fecha: dia(-385), titulo: 'Revisión técnica aprobada', estado: 'Resuelto', prioridad: 'Media', kilometraje: 121000, costo: 32000 },
     { id: 'demo-e5', vehiculo_id: 'demo-v3', tipo: 'Accidente / siniestro', fecha: dia(-60), titulo: 'Golpe en parachoques delantero', descripcion: 'Maniobra en patio de carga. Sin lesionados. Se informó a la aseguradora.', estado: 'Resuelto', prioridad: 'Media', ubicacion: 'Centro de distribución Lo Espejo', costo: 450000, n_documento: 'Siniestro 88-1123' },
@@ -257,8 +263,10 @@ export async function iniciar() {
   const backend = fabrica(...nombres.map((n) => globals[n]));
   const guardar = () => { try { localStorage.setItem(CLAVE, serializar(st)); } catch (e) { console.warn('demo: no se pudo guardar', e); } };
   if (!txt) {
+    st.cargandoSemilla = true; // los datos de ejemplo no muestran avisos de correo
     backend.setup();
     semilla(backend.manejar_);
+    delete st.cargandoSemilla;
     guardar();
   }
   return {

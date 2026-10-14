@@ -5,13 +5,16 @@ import { esDemo } from '../api.js';
 
 export const PERMISOS_TXT = {
   ver_vehiculos: 'Ver vehículos y su ficha',
-  editar_vehiculos: 'Crear, editar y dar de baja vehículos',
+  crear_vehiculos: 'Crear vehículos y editar o dar de baja los tuyos',
+  editar_vehiculos: 'Editar y dar de baja cualquier vehículo',
   ver_eventos: 'Ver todos los registros',
   crear_eventos: 'Crear registros',
   editar_eventos_propios: 'Editar tus propios registros',
+  eliminar_eventos_propios: 'Eliminar tus propios registros',
   editar_eventos: 'Editar cualquier registro',
-  eliminar_eventos: 'Eliminar registros',
-  subir_archivos: 'Adjuntar fotos, videos y audios',
+  eliminar_eventos: 'Eliminar cualquier registro',
+  solicitar_cambios: 'Pedir al administrador cambiar o eliminar lo de otros',
+  subir_archivos: 'Adjuntar fotos, videos, audios y documentos',
   administrar: 'Administrar usuarios, roles y campos',
 };
 

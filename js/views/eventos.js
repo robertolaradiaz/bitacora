@@ -1,9 +1,14 @@
 // Vistas de registros (mantenciones, problemas, hallazgos…): listado, detalle y formulario.
-import { html, pintar, icono, $, $$, aviso, confirmar, fFecha, fFechaHora, normTexto, fTam } from '../ui.js';
+import { html, pintar, icono, $, $$, aviso, confirmar, fFecha, fFechaHora, normTexto, fTam, modal } from '../ui.js';
 import { db } from '../db.js';
-import { estado, puede, camposDe, puedeEditarEvento, puedeAdjuntar, on } from '../state.js';
-import { inputCampo, leerCampos, valorDefecto, listaDatos } from '../campos.js';
-import { guardarEvento, eliminarEvento, quitarAdjunto, uuid } from '../sync.js';
+import {
+  estado, puede, camposDe, puedeEditarEvento, puedeEliminarEvento, puedeAdjuntar, puedeSolicitar, solicitudPendiente,
+  esResponsable, nombreUsuario, miEmail, esAdmin, on, puedeEditarVehiculo,
+} from '../state.js';
+import { inputCampo, leerCampos, valorDefecto, listaDatos, conectarAvisosResponsable } from '../campos.js';
+import { guardarEvento, eliminarEvento, quitarAdjunto, uuid, enviarSolicitud, anularSolicitud } from '../sync.js';
+import { reemplazar, salirA } from '../nav.js';
+import { bannerSolicitud, conectarBanners, pedirEliminacion, campoMotivo } from './solicitudes.js';
 import { formatoPatente, nombreVehiculo, estaAbierto, claseEstado, clasePrioridad, tonoTipo, tituloEvento, ordenarEventos } from '../negocio.js';
 import { elegirArchivos, comprimirImagen, grabarAudio, puedeGrabarAudio, ACCEPT_DOCS, mimeDe } from '../media.js';
 import { plantillaGaleria, montarGaleria, liberarUrls } from './adjuntos.js';
@@ -11,6 +16,9 @@ import { patenteHTML } from './vehiculos.js';
 
 export function itemEvento(e, { conPatente = null } = {}) {
   const n = (e.adjuntos || []).length;
+  const cResp = camposDe('evento').find((c) => c.tipo === 'usuario' && e[c.clave]);
+  const resp = cResp ? e[cResp.clave] : '';
+  const soyResp = resp && String(resp).toLowerCase() === miEmail();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.fecha || '');
   const MES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
   return html`<li class="item-ev ${e._pendiente ? 'es-pendiente' : ''}" style="--tono:${tonoTipo(e.tipo)}">
@@ -23,7 +31,9 @@ export function itemEvento(e, { conPatente = null } = {}) {
         <div class="ev-chips">
           ${e.estado ? html`<span class="chip ${claseEstado(e.estado)}">${e.estado}</span>` : ''}
           ${e.prioridad && estaAbierto(e) ? html`<span class="chip ${clasePrioridad(e.prioridad)}">${e.prioridad}</span>` : ''}
+          ${resp ? html`<span class="chip ${soyResp ? 'chip-asignado' : 'chip-neutro'}">${icono('usuario', 'ico-xs')} ${soyResp ? 'Asignado a mí' : nombreUsuario(resp)}</span>` : ''}
           ${n ? html`<span class="chip chip-neutro">${icono('clip', 'ico-xs')} ${n}</span>` : ''}
+          ${solicitudPendiente(e.id) ? html`<span class="chip chip-medio">${icono('bandeja', 'ico-xs')} Solicitud pendiente</span>` : ''}
           ${e._error ? html`<span class="chip chip-critico">Error al sincronizar</span>` : e._pendiente ? html`<span class="chip chip-pend">${icono('reloj', 'ico-xs')} Sin sincronizar</span>` : ''}
         </div>
       </div>
@@ -41,8 +51,8 @@ export function vistaRegistros(el) {
       <div class="titulo-pag"><h1>Registros</h1><span class="contador" id="cuenta"></span></div>
       <label class="busqueda">${icono('buscar')}<input type="search" id="q" placeholder="Buscar en títulos, descripciones, patentes…" value="${filtroReg.q}" autocomplete="off"></label>
       <div class="filtros">
-        ${[['abiertos', 'Abiertos'], ['todos', 'Todos'], ['mios', 'Míos'], ['pendientes', 'Sin sincronizar']].map(([k, t]) =>
-          html`<button class="filtro ${filtroReg.estado === k ? 'activo' : ''}" data-f="${k}">${t}</button>`)}
+        ${[['abiertos', 'Abiertos'], ['asignados', 'Asignados a mí'], ['todos', 'Todos'], ['mios', 'Creados por mí'], ['pendientes', 'Sin sincronizar']].map(([k, t]) =>
+          html`<button class="filtro ${filtroReg.estado === k ? 'activo' : ''}" data-f="${k}">${t}${k === 'asignados' ? html` <span class="num-filtro" id="numAsig"></span>` : ''}</button>`)}
         <select id="fTipo" class="filtro-select" aria-label="Tipo"><option value="">Todos los tipos</option>
           ${tipos.split(',').map((s) => s.trim()).filter(Boolean).map((t) => html`<option ${filtroReg.tipo === t ? html`selected` : ''}>${t}</option>`)}</select>
       </div>
@@ -54,7 +64,10 @@ export function vistaRegistros(el) {
     const vMap = new Map(vs.map((v) => [v.id, v]));
     const q = normTexto(filtroReg.q);
     let lista = evs.filter((e) => vMap.has(e.vehiculo_id));
+    const asignadosAbiertos = lista.filter((e) => esResponsable(e) && estaAbierto(e)).length;
+    $('#numAsig', el).textContent = asignadosAbiertos ? String(asignadosAbiertos) : '';
     if (filtroReg.estado === 'abiertos') lista = lista.filter(estaAbierto);
+    if (filtroReg.estado === 'asignados') lista = lista.filter((e) => esResponsable(e));
     if (filtroReg.estado === 'mios') lista = lista.filter((e) => e.creado_por === (estado.usuario || {}).email);
     if (filtroReg.estado === 'pendientes') lista = lista.filter((e) => e._pendiente || e._error);
     if (filtroReg.tipo) lista = lista.filter((e) => e.tipo === filtroReg.tipo);
@@ -62,7 +75,8 @@ export function vistaRegistros(el) {
     lista = ordenarEventos(lista).slice(0, 300);
     $('#cuenta', el).textContent = String(lista.length);
     pintar($('#lista', el), lista.length ? lista.map((e) => itemEvento(e, { conPatente: vMap.get(e.vehiculo_id) }))
-      : html`<li class="vacio vacio-chico">${icono('lista', 'ico-xl')}<p>${filtroReg.estado === 'abiertos' && !q ? 'No hay registros abiertos. ¡Todo al día!' : 'No hay registros con estos filtros.'}</p></li>`);
+      : html`<li class="vacio vacio-chico">${icono('lista', 'ico-xl')}<p>${filtroReg.estado === 'abiertos' && !q ? 'No hay registros abiertos. ¡Todo al día!'
+        : filtroReg.estado === 'asignados' && !q ? 'No tienes registros asignados.' : 'No hay registros con estos filtros.'}</p></li>`);
   };
   const q = $('#q', el);
   q.addEventListener('input', () => { filtroReg.q = q.value; actualizar(); });
@@ -96,16 +110,22 @@ export function vistaEvento(el, [id]) {
     const v = await db.get('vehiculos', ev.vehiculo_id);
     const items = await adjuntosDe(ev);
     const editable = puedeEditarEvento(ev);
+    const eliminable = puedeEliminarEvento(ev);
+    const solicitar = puedeSolicitar() && !ev._pendiente;
+    const pendientes = estado.solicitudes.filter((s) => s.registro_id === id && s.estado === 'pendiente' && (esAdmin() || s.solicitado_por === miEmail()));
     liberarUrls();
     pintar(el, html`
       <section class="pagina pagina-det" style="--tono:${tonoTipo(ev.tipo)}">
         <div class="det-nav">
           <a class="volver" href="#/v/${ev.vehiculo_id}">${icono('atras')} ${v ? formatoPatente(v.patente) : 'Volver'}</a>
           <div class="det-acciones">
-            ${editable ? html`<a class="btn btn-sec btn-chico" href="#/e/${id}/editar">${icono('editar')} Editar</a>` : ''}
-            ${puede('eliminar_eventos') ? html`<button class="btn-icono peligro" id="eliminar" aria-label="Eliminar registro">${icono('basura')}</button>` : ''}
+            ${editable ? html`<a class="btn btn-sec btn-chico" href="#/e/${id}/editar">${icono('editar')} Editar</a>`
+              : solicitar ? html`<a class="btn btn-sec btn-chico" href="#/e/${id}/solicitar">${icono('editar')} Pedir cambio</a>` : ''}
+            ${eliminable ? html`<button class="btn-icono peligro" id="eliminar" aria-label="Eliminar registro">${icono('basura')}</button>`
+              : solicitar ? html`<button class="btn-icono peligro" id="pedirEliminar" aria-label="Pedir eliminar registro" title="Pedir eliminar">${icono('basura')}</button>` : ''}
           </div>
         </div>
+        ${pendientes.map((s) => bannerSolicitud(s))}
         <header class="ev-cab">
           <div class="ev-tipo grande"><span class="punto"></span>${ev.tipo || 'Registro'}</div>
           <h1>${tituloEvento(ev)}</h1>
@@ -136,8 +156,11 @@ export function vistaEvento(el, [id]) {
       if (!await confirmar('¿Eliminar este registro? Los archivos adjuntos se conservan en Drive.', { titulo: 'Eliminar registro', si: 'Eliminar', peligro: true })) return;
       await eliminarEvento(id);
       aviso('Registro eliminado', { tipo: 'ok' });
-      location.hash = '#/v/' + ev.vehiculo_id;
+      reemplazar('/v/' + ev.vehiculo_id);
     };
+    const pedir = $('#pedirEliminar', el);
+    if (pedir) pedir.onclick = () => pedirEliminacion({ entidad: 'evento', registro_id: id, nombre: `el registro «${tituloEvento(ev)}»` });
+    conectarBanners(el, actualizar);
   };
   // refrescar la barra de progreso de subida
   quitarOyente = on('subida', (s) => { if (s && s.eventoId === id) actualizar(); });
@@ -146,35 +169,42 @@ export function vistaEvento(el, [id]) {
 }
 
 // ---------------------------------------------------------------------------
-// Formulario: /v/:vehiculoId/registro (nuevo) o /e/:id/editar
-export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
+// Formulario: /v/:vehiculoId/registro (nuevo), /e/:id/editar o /e/:id/solicitar (pedir cambio)
+export async function vistaEventoForm(el, [idVeh], { editar = false, solicitar = false } = {}) {
   let ev = null;
   let vehiculoId = idVeh;
-  if (editar) {
+  if (editar || solicitar) {
     ev = await db.get('eventos', idVeh);
-    if (!ev || !puedeEditarEvento(ev)) { aviso('No puedes editar este registro', { tipo: 'error' }); location.hash = ev ? '#/e/' + ev.id : '#/'; return; }
+    const permitido = ev && (solicitar ? puedeSolicitar() : puedeEditarEvento(ev));
+    if (!permitido) { aviso('No puedes editar este registro', { tipo: 'error' }); reemplazar(ev ? '/e/' + ev.id : '/'); return; }
     vehiculoId = ev.vehiculo_id;
-  } else if (!puede('crear_eventos')) { location.hash = '#/v/' + idVeh; return; }
+  } else if (!puede('crear_eventos')) { reemplazar('/v/' + idVeh); return; }
   const v = await db.get('vehiculos', vehiculoId);
-  if (!v) { location.hash = '#/'; return; }
+  if (!v) { reemplazar('/'); return; }
 
   const campos = camposDe('evento');
   const nuevos = [];         // archivos agregados en este formulario
   const aQuitar = [];        // adjuntos existentes a quitar
-  const existentes = ev ? await adjuntosDe(ev) : [];
-  const permiteAdjuntar = puedeAdjuntar(ev);
+  const existentes = ev && !solicitar ? await adjuntosDe(ev) : [];
+  const permiteAdjuntar = !solicitar && puedeAdjuntar(ev);
   const maxMB = Number(estado.config.tamano_max_mb || 300);
   const volver = ev ? '#/e/' + ev.id : '#/v/' + vehiculoId;
+  const previa = solicitar ? solicitudPendiente(ev.id, 'editar') : null;
+  // Si ya hay una solicitud pendiente, el formulario muestra lo que se pidió para poder corregirlo
+  const valorInicial = (c) => (previa && previa.cambios && previa.cambios[c.clave] ? previa.cambios[c.clave][1] : ev ? ev[c.clave] : valorDefecto(c));
 
   pintar(el, html`
     <section class="pagina pagina-form">
       <div class="det-nav"><a class="volver" href="${volver}">${icono('atras')} Cancelar</a></div>
       <div class="form-cab">
         ${patenteHTML(v.patente)}
-        <div><h1>${ev ? 'Editar registro' : 'Nuevo registro'}</h1><p class="sub">${nombreVehiculo(v)}</p></div>
+        <div><h1>${solicitar ? 'Pedir cambio' : ev ? 'Editar registro' : 'Nuevo registro'}</h1><p class="sub">${nombreVehiculo(v)}</p></div>
       </div>
+      ${solicitar ? html`<div class="banner banner-solicitud">${icono('bandeja')}<div>Este registro lo creó ${nombreUsuario(ev.creado_por)}.
+        Cambia lo que haga falta y explica el motivo: el administrador recibirá la solicitud y decidirá si se aplica.</div></div>` : ''}
       <form id="form" class="formulario" novalidate>
-        ${campos.map((c) => inputCampo(c, ev ? ev[c.clave] : valorDefecto(c)))}
+        ${campos.map((c) => inputCampo(c, valorInicial(c)))}
+        ${solicitar ? campoMotivo('¿Por qué hay que cambiarlo?') : ''}
         ${permiteAdjuntar ? html`
           <fieldset class="adjuntar" id="adjuntos">
             <legend>Fotos, videos, audios y documentos</legend>
@@ -189,7 +219,7 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
             <small class="ayuda">Máximo ${maxMB} MB por archivo. Se suben a Google Drive al sincronizar.</small>
           </fieldset>` : ''}
         <div class="form-acciones">
-          <button type="submit" class="btn btn-pri btn-bloque">${icono('ok')} Guardar registro</button>
+          <button type="submit" class="btn btn-pri btn-bloque">${icono('ok')} ${solicitar ? 'Enviar solicitud al administrador' : 'Guardar registro'}</button>
         </div>
         <p class="nota-offline">${icono('nube', 'ico-xs')} Puedes guardar sin conexión: se enviará automáticamente.</p>
       </form>
@@ -197,6 +227,7 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
 
   const form = $('#form', el);
   const galeria = $('#galeria', el);
+  const avisados = conectarAvisosResponsable(form, { patente: v.patente, solicitud: solicitar });
 
   const pintarGaleria = () => {
     if (!galeria) return;
@@ -250,6 +281,24 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
     const { datos, errores } = leerCampos(form, campos);
     if (errores.length) { aviso('Revisa los campos marcados', { tipo: 'error' }); return; }
     const btn = form.querySelector('[type=submit]');
+    if (solicitar) {
+      const motivo = $('#motivo', form).value.trim();
+      const cambios = {};
+      campos.forEach((c) => {
+        const antes = ev[c.clave] === undefined || ev[c.clave] === null ? '' : ev[c.clave];
+        if (String(antes) !== String(datos[c.clave] ?? '')) cambios[c.clave] = datos[c.clave];
+      });
+      if (!Object.keys(cambios).length) { aviso('No cambiaste ningún dato', { tipo: 'error' }); return; }
+      if (!motivo) { aviso('Explica el motivo de la solicitud', { tipo: 'error' }); $('#motivo', form).focus(); return; }
+      btn.disabled = true;
+      try {
+        await enviarSolicitud({ tipo: 'editar', entidad: 'evento', registro_id: ev.id, datos: cambios, motivo, resumen: `${v.patente} · ${tituloEvento(ev)}`,
+          cambios: Object.fromEntries(Object.entries(cambios).map(([k, x]) => [k, [ev[k] ?? '', x]])) });
+        aviso(navigator.onLine ? 'Solicitud enviada. Te avisaremos por correo cuando el administrador la revise.' : 'Solicitud guardada; se enviará al recuperar conexión', { tipo: 'ok', duracion: 5000 });
+        salirA('/e/' + ev.id);
+      } catch (err) { aviso(err.message, { tipo: 'error' }); } finally { btn.disabled = false; }
+      return;
+    }
     btn.disabled = true;
     try {
       const reg = await guardarEvento(Object.assign({}, datos, { id: ev ? ev.id : uuid(), vehiculo_id: vehiculoId }), nuevos.map((n) => ({
@@ -260,12 +309,16 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
         if (a) await quitarAdjunto(reg.id, a);
       }
       // Actualizar kilometraje del vehículo si el registro trae uno mayor
-      if (datos.kilometraje && puede('editar_vehiculos') && Number(datos.kilometraje) > Number(v.kilometraje || 0) && camposDe('vehiculo').some((c) => c.clave === 'kilometraje')) {
+      if (datos.kilometraje && puedeEditarVehiculo(v) && Number(datos.kilometraje) > Number(v.kilometraje || 0) && camposDe('vehiculo').some((c) => c.clave === 'kilometraje')) {
         const { guardarVehiculo } = await import('../sync.js');
         await guardarVehiculo({ id: v.id, kilometraje: Number(datos.kilometraje) });
       }
-      aviso(navigator.onLine ? 'Registro guardado' : 'Guardado en el teléfono. Se enviará al recuperar conexión', { tipo: 'ok' });
-      location.hash = '#/e/' + reg.id;
+      const nombres = avisados();
+      aviso((navigator.onLine ? 'Registro guardado' : 'Guardado en el teléfono. Se enviará al recuperar conexión')
+        + (nombres.length ? `. Se avisará por correo a ${nombres.join(' y ')}.` : ''), { tipo: 'ok', duracion: nombres.length ? 5000 : 3500 });
+      salirA('/e/' + reg.id);
+    } catch (err) {
+      aviso(err.message, { tipo: 'error' });
     } finally {
       btn.disabled = false;
     }

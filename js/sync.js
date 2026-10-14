@@ -17,15 +17,24 @@ export const ahoraISO = () => new Date().toISOString();
 //  Cargar datos guardados al abrir la app
 // ---------------------------------------------------------------------------
 export async function cargarLocal() {
-  const [usuario, permisos, campos, config, ultimo] = await Promise.all(
-    ['usuario', 'permisos', 'campos', 'config', 'lastSync'].map((k) => db.kvGet(k)),
+  const [usuario, permisos, campos, config, ultimo, usuarios, solicitudes] = await Promise.all(
+    ['usuario', 'permisos', 'campos', 'config', 'lastSync', 'usuarios', 'solicitudes'].map((k) => db.kvGet(k)),
   );
   estado.usuario = usuario || null;
   estado.permisos = permisos || {};
   estado.campos = campos || [];
   estado.config = config || {};
+  estado.usuarios = usuarios || [];
   estado.sync.ultimo = ultimo || null;
+  // Solicitudes guardadas sin conexión: se muestran como pendientes hasta enviarlas
+  const enCola = (await db.all('outbox')).filter((o) => o.op === 'solicitud' && !o.error).map((o) => Object.assign({ _pendiente: true }, o.data));
+  estado.solicitudes = combinarSolicitudes(solicitudes || [], enCola);
   await contarPendientes();
+}
+
+function combinarSolicitudes(servidor, locales) {
+  const ids = new Set(locales.map((s) => s.id));
+  return locales.concat(servidor.filter((s) => !ids.has(s.id)));
 }
 
 export async function contarPendientes() {
@@ -39,7 +48,10 @@ export async function contarPendientes() {
 // ---------------------------------------------------------------------------
 //  Acciones del usuario (funcionan sin conexión)
 // ---------------------------------------------------------------------------
+export class ErrorSoloLectura extends Error {}
+
 async function encolar(op) {
+  if (estado.verComo) throw new ErrorSoloLectura('Estás viendo la app como ' + estado.verComo.nombre + ': no se guardan cambios.');
   op.opId = uuid();
   op.email = miEmail();
   op.creado = Date.now();
@@ -55,7 +67,35 @@ async function encolar(op) {
   await db.put('outbox', op);
 }
 
+// Solicitud al administrador para editar o eliminar algo ajeno (funciona sin conexión).
+// datos: { tipo: 'editar'|'eliminar', entidad: 'evento'|'vehiculo', registro_id, datos?, motivo }
+export async function enviarSolicitud(datos) {
+  const pendiente = estado.solicitudes.find((s) => s.registro_id === datos.registro_id && s.tipo === datos.tipo
+    && s.estado === 'pendiente' && s.solicitado_por === miEmail());
+  const sol = Object.assign({ id: pendiente ? pendiente.id : uuid(), estado: 'pendiente', solicitado_por: miEmail(), solicitado_en: ahoraISO() }, datos);
+  const cola = await db.all('outbox');
+  const previa = cola.find((o) => o.op === 'solicitud' && o.data.id === sol.id && !enVuelo.has(o.seq));
+  if (previa) { previa.data = sol; previa.error = null; await db.put('outbox', previa); }
+  else await encolar({ op: 'solicitud', data: sol });
+  estado.solicitudes = combinarSolicitudes(estado.solicitudes.filter((s) => s.id !== sol.id), [Object.assign({ _pendiente: true }, sol)]);
+  await despuesDeCambio();
+  return sol;
+}
+
+export async function anularSolicitud(id) {
+  if (estado.verComo) throw new ErrorSoloLectura('Modo "ver como": solo lectura');
+  const cola = await db.all('outbox');
+  const local = cola.find((o) => o.op === 'solicitud' && o.data.id === id && !enVuelo.has(o.seq));
+  const s = estado.solicitudes.find((x) => x.id === id);
+  if (local) await db.del('outbox', local.seq);
+  if (s && !s._pendiente) await llamar('anularSolicitud', { id });
+  estado.solicitudes = estado.solicitudes.filter((x) => x.id !== id);
+  await despuesDeCambio();
+  if (s && !s._pendiente) await sincronizar();
+}
+
 export async function guardarVehiculo(datos) {
+  if (estado.verComo) throw new ErrorSoloLectura('Estás viendo la app como ' + estado.verComo.nombre + ': no se guardan cambios.');
   const ahora = ahoraISO();
   const id = datos.id || uuid();
   const existente = await db.get('vehiculos', id);
@@ -70,12 +110,13 @@ export async function guardarVehiculo(datos) {
 }
 
 export async function darDeBajaVehiculo(id) {
-  await db.del('vehiculos', id);
   await encolar({ op: 'eliminarVehiculo', id });
+  await db.del('vehiculos', id);
   await despuesDeCambio();
 }
 
 export async function guardarEvento(datos, nuevosArchivos = []) {
+  if (estado.verComo) throw new ErrorSoloLectura('Estás viendo la app como ' + estado.verComo.nombre + ': no se guardan cambios.');
   const ahora = ahoraISO();
   const id = datos.id || uuid();
   const existente = await db.get('eventos', id);
@@ -95,6 +136,7 @@ export async function guardarEvento(datos, nuevosArchivos = []) {
 }
 
 export async function eliminarEvento(id) {
+  if (estado.verComo) throw new ErrorSoloLectura('Modo "ver como": solo lectura');
   const local = await db.get('eventos', id);
   await db.del('eventos', id);
   // Si nunca llegó al servidor, basta con descartarlo localmente
@@ -109,6 +151,7 @@ export async function eliminarEvento(id) {
 }
 
 export async function quitarAdjunto(eventoId, adjunto) {
+  if (estado.verComo) throw new ErrorSoloLectura('Modo "ver como": solo lectura');
   const local = await db.get('archivos', adjunto.id);
   if (local) {
     await db.del('archivos', adjunto.id);
@@ -194,6 +237,7 @@ async function enviar(ops, completo) {
   try {
     res = await llamar('sync', {
       since, permHash,
+      verComo: estado.verComo ? estado.verComo.email : undefined,
       ops: ops.map((o) => ({ opId: o.opId, op: o.op, data: o.data, id: o.id, eventoId: o.eventoId, adjuntoId: o.adjuntoId })),
     }, { timeout: 90000 });
   } finally {
@@ -209,11 +253,13 @@ async function enviar(ops, completo) {
     if (r.ok) {
       exitos++;
       await db.del('outbox', op.seq);
+      if (op.op === 'solicitud') continue; // la lista de solicitudes llega completa más abajo
       if (r.registro) await aplicarRegistro(op.op === 'vehiculo' || op.op === 'eliminarVehiculo' ? 'vehiculos' : 'eventos', r.registro);
     } else if (esPermanente(new ErrorApi(r.error, r.codigo))) {
       op.error = r.error;
       op.codigo = r.codigo;
       await db.put('outbox', op);
+      if (op.op === 'solicitud') continue;
       const store = op.op === 'vehiculo' || op.op === 'eliminarVehiculo' ? 'vehiculos' : 'eventos';
       const id = (op.data && op.data.id) || op.id || op.eventoId;
       const local = id && await db.get(store, id);
@@ -244,10 +290,14 @@ async function enviar(ops, completo) {
   estado.permisos = res.permisos;
   estado.campos = res.campos;
   estado.config = res.config;
+  estado.usuarios = res.usuarios || [];
+  const enCola = (await db.all('outbox')).filter((o) => o.op === 'solicitud' && !o.error).map((o) => Object.assign({ _pendiente: true }, o.data));
+  estado.solicitudes = combinarSolicitudes(res.solicitudes || [], enCola);
   estado.sync.ultimo = res.serverTime;
   await Promise.all([
     db.kvSet('usuario', res.usuario), db.kvSet('permisos', res.permisos), db.kvSet('campos', res.campos),
     db.kvSet('config', res.config), db.kvSet('lastSync', res.serverTime), db.kvSet('permHash', res.permHash),
+    db.kvSet('usuarios', estado.usuarios), db.kvSet('solicitudes', res.solicitudes || []),
   ]);
   emitir('meta');
   return ops.length && !exitos ? 'sin-progreso' : 'ok';
