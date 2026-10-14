@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import { estado, esAdmin } from '../state.js';
 import { sincronizar, descartarOp, reintentarOp, descartarArchivo, reintentarArchivo } from '../sync.js';
 import { esDemo } from '../api.js';
-import { VERSION } from '../config.js';
+import { VERSION } from '../version.js';
 import { PERMISOS_TXT } from './login.js';
 
 let promptInstalar = null;

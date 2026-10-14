@@ -32,9 +32,10 @@ function cargarGIS() {
 
 export function pantallaLogin(raiz, { mensaje = '', email = '', onCredencial }) {
   pintar(raiz, html`
-    <div class="login">
+    <div class="login login-a">
       <div class="login-marca">
-        <img src="icons/icon-192.png" alt="" width="72" height="72">
+        <img class="login-logo logo-sobre-naranjo" src="brand/unit-hb-blanco.svg" alt="UNIT · Universal Intelligence">
+        <img class="login-logo logo-sobre-blanco" src="brand/unit-hb-naranjo.svg" alt="UNIT · Universal Intelligence">
         <h1>${CONFIG.APP_NOMBRE}</h1>
         <p>Historial de mantenciones, problemas y hallazgos de cada vehículo de la flota.</p>
       </div>

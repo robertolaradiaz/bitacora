@@ -1,6 +1,6 @@
 // Galería de adjuntos (fotos, videos, audios) y visor.
 import { html, icono, pintar, $$, modal, fTam, aviso } from '../ui.js';
-import { tipoMedio } from '../media.js';
+import { tipoMedio, extension } from '../media.js';
 import { obtenerMiniatura, obtenerArchivo } from '../sync.js';
 import { esDemo } from '../api.js';
 import { estado } from '../state.js';
@@ -9,7 +9,9 @@ const urls = new Set();
 export function urlDe(blob) { const u = URL.createObjectURL(blob); urls.add(u); return u; }
 export function liberarUrls() { urls.forEach((u) => URL.revokeObjectURL(u)); urls.clear(); }
 
-const ICONO_TIPO = { imagen: 'imagen', video: 'video', audio: 'mic', archivo: 'archivo' };
+const ICONO_TIPO = { imagen: 'imagen', video: 'video', audio: 'mic', documento: 'archivo', archivo: 'archivo' };
+// Drive genera miniatura (primera página) para fotos, videos y documentos.
+const CON_MINIATURA = ['imagen', 'video', 'documento'];
 
 // items: [{ id, nombre, mime, tamano, driveId?, url?, blob?, estado?, error? }]
 export function plantillaGaleria(items, { quitable = false } = {}) {
@@ -24,6 +26,7 @@ export function plantillaGaleria(items, { quitable = false } = {}) {
         <span class="adj-fondo">${icono(ICONO_TIPO[tipo])}</span>
         <img class="adj-img" alt="" hidden>
         ${tipo === 'video' ? html`<span class="adj-play">${icono('play')}</span>` : ''}
+        ${(tipo === 'documento' || tipo === 'archivo') && extension(a.nombre) ? html`<span class="adj-ext">${extension(a.nombre).toUpperCase()}</span>` : ''}
         ${tipo === 'audio' && a.duracion ? html`<span class="adj-dur">${Math.floor(a.duracion / 60)}:${String(a.duracion % 60).padStart(2, '0')}</span>` : ''}
       </button>
       <span class="adj-nombre" title="${a.nombre}">${a.nombre}</span>
@@ -46,7 +49,7 @@ export function montarGaleria(raiz, items, { onQuitar = null } = {}) {
     const img = li.querySelector('.adj-img');
     let blob = null;
     if (a.blob && tipo === 'imagen') blob = a.blob;
-    else if (a.driveId && (tipo === 'imagen' || tipo === 'video')) blob = await obtenerMiniatura(a.driveId, 400);
+    else if (a.driveId && CON_MINIATURA.includes(tipo)) blob = await obtenerMiniatura(a.driveId, 400);
     if (blob && /^image\//.test(blob.type || 'image/')) {
       img.src = urlDe(blob);
       img.hidden = false;
@@ -82,6 +85,14 @@ export async function verAdjunto(a) {
       if (tipo === 'imagen') blob = await obtenerMiniatura(a.driveId, 1600);
       else if (tipo === 'audio') blob = await obtenerArchivo(a.driveId);
       else if (tipo === 'video') blob = await obtenerArchivoLocal(a.driveId);
+      else if (tipo === 'documento' && enDrive) {
+        // Vista previa de la primera página; el documento completo se abre en Drive.
+        const mini = await obtenerMiniatura(a.driveId, 1600);
+        if (mini && /^image\//.test(mini.type || '')) {
+          pintar(cont, html`<img src="${urlDe(mini)}" alt="Primera página de ${a.nombre}">`);
+          return;
+        }
+      }
     }
     if (!blob) {
       pintar(cont, html`<div class="visor-vacio">${icono(ICONO_TIPO[tipo])}<p>${navigator.onLine
@@ -93,7 +104,11 @@ export async function verAdjunto(a) {
     if (tipo === 'imagen') pintar(cont, html`<img src="${u}" alt="${a.nombre}">`);
     else if (tipo === 'video') pintar(cont, html`<video src="${u}" controls playsinline></video>`);
     else if (tipo === 'audio') pintar(cont, html`<div class="visor-audio">${icono('mic')}<audio src="${u}" controls></audio></div>`);
-    else pintar(cont, html`<div class="visor-vacio">${icono('archivo')}<p>${fTam(blob.size)}</p><a class="btn btn-pri" href="${u}" download="${a.nombre}">${icono('descargar')} Descargar</a></div>`);
+    else pintar(cont, html`<div class="visor-vacio">${icono('archivo')}<p>${fTam(blob.size)}</p>
+      <div class="visor-botones">
+        ${tipo === 'documento' ? html`<a class="btn btn-sec" href="${u}" target="_blank" rel="noopener">${icono('externo')} Abrir</a>` : ''}
+        <a class="btn btn-pri" href="${u}" download="${a.nombre}">${icono('descargar')} Descargar</a>
+      </div></div>`);
   } catch (e) {
     pintar(cont, html`<div class="visor-vacio"><p>${e.message}</p></div>`);
     aviso('No se pudo abrir el archivo', { tipo: 'error' });

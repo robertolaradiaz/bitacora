@@ -67,7 +67,7 @@ function montarShell() {
   pintar(raiz, html`
     ${esDemo() ? html`<div class="cinta-demo">Modo demostración · los datos quedan solo en este dispositivo</div>` : ''}
     <header class="barra-sup">
-      <a class="marca" href="#/"><img src="icons/icon-192.png" alt="" width="30" height="30"><span id="nombreApp">${nombreApp()}</span></a>
+      <a class="marca" href="#/" aria-label="Inicio"><img class="logo-barra" src="brand/unit-h-blanco.svg" alt="UNIT"><span class="marca-sep"></span><span class="marca-app">Bitácora</span></a>
       <a class="pastilla" id="pastilla" href="#/sync" aria-live="polite"></a>
     </header>
     <main id="vista" class="vista"></main>
@@ -167,9 +167,7 @@ on('datos', () => {
   if (vistaActual && vistaActual.actualizar) vistaActual.actualizar();
 });
 on('meta', () => {
-  const n = $('#nombreApp');
-  if (n) n.textContent = nombreApp();
-  document.title = nombreApp();
+  document.title = 'Bitácora · ' + nombreApp();
   const tenia = !!$('.tabbar a[data-tab="admin"]');
   if (tenia !== esAdmin()) pintarTabs();
 });
@@ -225,7 +223,7 @@ async function iniciar() {
   estado.sesion = sesion;
   setToken(sesion.token);
   await cargarLocal();
-  document.title = nombreApp();
+  document.title = 'Bitácora · ' + nombreApp();
   montarShell();
   navegar();
   sincronizar();

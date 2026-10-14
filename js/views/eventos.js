@@ -5,7 +5,7 @@ import { estado, puede, camposDe, puedeEditarEvento, puedeAdjuntar, on } from '.
 import { inputCampo, leerCampos, valorDefecto, listaDatos } from '../campos.js';
 import { guardarEvento, eliminarEvento, quitarAdjunto, uuid } from '../sync.js';
 import { formatoPatente, nombreVehiculo, estaAbierto, claseEstado, clasePrioridad, tonoTipo, tituloEvento, ordenarEventos } from '../negocio.js';
-import { elegirArchivos, comprimirImagen, grabarAudio, puedeGrabarAudio } from '../media.js';
+import { elegirArchivos, comprimirImagen, grabarAudio, puedeGrabarAudio, ACCEPT_DOCS, mimeDe } from '../media.js';
 import { plantillaGaleria, montarGaleria, liberarUrls } from './adjuntos.js';
 import { patenteHTML } from './vehiculos.js';
 
@@ -177,12 +177,13 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
         ${campos.map((c) => inputCampo(c, ev ? ev[c.clave] : valorDefecto(c)))}
         ${permiteAdjuntar ? html`
           <fieldset class="adjuntar" id="adjuntos">
-            <legend>Fotos, videos y audios</legend>
+            <legend>Fotos, videos, audios y documentos</legend>
             <div class="botones-medios">
               <button type="button" class="btn-medio" data-medio="foto">${icono('camara')}<span>Foto</span></button>
               <button type="button" class="btn-medio" data-medio="video">${icono('video')}<span>Video</span></button>
               <button type="button" class="btn-medio" data-medio="audio">${icono('mic')}<span>Audio</span></button>
               <button type="button" class="btn-medio" data-medio="archivo">${icono('clip')}<span>Galería</span></button>
+              <button type="button" class="btn-medio" data-medio="documento">${icono('archivo')}<span>PDF/Doc</span></button>
             </div>
             <div id="galeria"></div>
             <small class="ayuda">Máximo ${maxMB} MB por archivo. Se suben a Google Drive al sincronizar.</small>
@@ -217,7 +218,9 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
       if (f.type.startsWith('image/') && estado.config.comprimir_fotos !== 'no') f = await comprimirImagen(f);
       if (f.size > maxMB * 1048576) { aviso(`"${f.name}" supera ${maxMB} MB (${fTam(f.size)})`, { tipo: 'error', duracion: 6000 }); continue; }
       const nombre = f.name && f.name !== 'image.jpg' ? f.name : `foto_${Date.now()}.jpg`;
-      nuevos.push(Object.assign({ id: uuid(), nombre, mime: f.type || 'application/octet-stream', tamano: f.size, blob: f }, extra));
+      const mime = mimeDe(f);
+      if (mime !== f.type) f = new File([f], f.name, { type: mime, lastModified: f.lastModified });
+      nuevos.push(Object.assign({ id: uuid(), nombre, mime, tamano: f.size, blob: f }, extra));
     }
     pintarGaleria();
   };
@@ -227,7 +230,8 @@ export async function vistaEventoForm(el, [idVeh], { editar = false } = {}) {
       const t = b.dataset.medio;
       if (t === 'foto') agregar(await elegirArchivos({ accept: 'image/*', capture: 'environment' }));
       else if (t === 'video') agregar(await elegirArchivos({ accept: 'video/*', capture: 'environment' }));
-      else if (t === 'archivo') agregar(await elegirArchivos({ accept: 'image/*,video/*,audio/*,application/pdf', multiple: true }));
+      else if (t === 'archivo') agregar(await elegirArchivos({ accept: 'image/*,video/*,audio/*', multiple: true }));
+      else if (t === 'documento') agregar(await elegirArchivos({ accept: ACCEPT_DOCS, multiple: true }));
       else if (t === 'audio') {
         if (puedeGrabarAudio()) {
           const r = await grabarAudio();

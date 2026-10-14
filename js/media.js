@@ -106,10 +106,34 @@ export function grabarAudio() {
   });
 }
 
+// Documentos que se pueden adjuntar (PDF, Office, OpenDocument, texto).
+const MIME_DOCS = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  txt: 'text/plain',
+  csv: 'text/csv',
+};
+export const ACCEPT_DOCS = Object.keys(MIME_DOCS).map((e) => '.' + e).concat(Object.values(MIME_DOCS)).join(',');
+
+export const extension = (nombre) => (/\.([a-z0-9]{1,5})$/i.exec(String(nombre || '')) || [])[1]?.toLowerCase() || '';
+
+// Algunos teléfonos entregan documentos sin tipo: se deduce por la extensión.
+export function mimeDe(file) {
+  return file.type || MIME_DOCS[extension(file.name)] || 'application/octet-stream';
+}
+
 export function tipoMedio(mime) {
   const m = String(mime || '');
   if (m.startsWith('image/')) return 'imagen';
   if (m.startsWith('video/')) return 'video';
   if (m.startsWith('audio/')) return 'audio';
+  if (Object.values(MIME_DOCS).includes(m) || m.startsWith('text/')) return 'documento';
   return 'archivo';
 }

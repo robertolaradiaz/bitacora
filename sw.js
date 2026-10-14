@@ -1,6 +1,6 @@
 // Service worker: guarda la app en el teléfono para que abra sin conexión.
 // Cambia VERSION cada vez que publiques cambios para que los teléfonos se actualicen.
-const VERSION = 'bitacora-v1.0.0';
+const VERSION = 'bitacora-v1.2.0';
 const ARCHIVOS = [
   './',
   'index.html',
@@ -16,6 +16,7 @@ const ARCHIVOS = [
   'js/state.js',
   'js/sync.js',
   'js/ui.js',
+  'js/version.js',
   'js/views/adjuntos.js',
   'js/views/admin.js',
   'js/views/cuenta.js',
@@ -24,6 +25,16 @@ const ARCHIVOS = [
   'js/views/vehiculos.js',
   'demo/emulador.js',
   'demo/Code.gs',
+  'fonts/titillium-web-latin-600-normal.woff2',
+  'fonts/titillium-web-latin-700-normal.woff2',
+  'fonts/bai-jamjuree-400.woff2',
+  'fonts/bai-jamjuree-500.woff2',
+  'fonts/bai-jamjuree-600.woff2',
+  'fonts/bai-jamjuree-700.woff2',
+  'brand/unit-h-blanco.svg',
+  'brand/unit-hb-blanco.svg',
+  'brand/unit-hb-naranjo.svg',
+  'brand/unit-v-naranjo.svg',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
